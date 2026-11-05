@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 func TestPrintHostList(t *testing.T) {
@@ -44,9 +44,6 @@ func TestCheckoutMissingDeviceIDDoesNotPOST(t *testing.T) {
 		"--api-base", srv.URL,
 		"checkout",
 		"--renter-user-id", "11111111-1111-1111-1111-111111111111",
-		"--success-url", "https://example.test/ok",
-		"--cancel-url", "https://example.test/cancel",
-		"--no-open",
 	})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
@@ -77,9 +74,6 @@ func TestCheckoutRejectsPublicLabelBeforePOST(t *testing.T) {
 		"checkout",
 		"--device-id", "agx-large 22222222",
 		"--renter-user-id", "11111111-1111-1111-1111-111111111111",
-		"--success-url", "https://example.test/ok",
-		"--cancel-url", "https://example.test/cancel",
-		"--no-open",
 	})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)

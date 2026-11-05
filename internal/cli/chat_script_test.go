@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 func TestScriptPromptStdoutIsModelTextOnly(t *testing.T) {

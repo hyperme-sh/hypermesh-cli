@@ -13,10 +13,10 @@ import (
 
 // Check is one doctor result for a server.
 type Check struct {
-	Name    string `json:"name"`
-	OK      bool   `json:"ok"`
+	Name      string `json:"name"`
+	OK        bool   `json:"ok"`
 	Transport string `json:"transport"`
-	Detail  string `json:"detail"`
+	Detail    string `json:"detail"`
 }
 
 // Doctor probes servers in a profile without calling tools.

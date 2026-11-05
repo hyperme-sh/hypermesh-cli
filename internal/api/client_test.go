@@ -30,8 +30,15 @@ func TestCreateLeaseHTTP(t *testing.T) {
 		if r.Header.Get(HeaderAPIKey) != "org_key" || r.Header.Get(HeaderTenantID) != "ten" {
 			t.Fatalf("missing renter headers")
 		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "success_url") || strings.Contains(string(raw), "cancel_url") || strings.Contains(string(raw), "checkout_url") {
+			t.Fatalf("checkout URL fields in body: %s", raw)
+		}
 		var body LeaseCreate
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.Unmarshal(raw, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body.Kind != KindP2LoadedModel || body.CatalogID != DefaultCatalogID || body.Purpose != PurposeRenter {
@@ -40,16 +47,16 @@ func TestCreateLeaseHTTP(t *testing.T) {
 		if body.DeviceID != "22222222-2222-2222-2222-222222222222" {
 			t.Fatalf("device_id %+v", body)
 		}
-		_ = json.NewEncoder(w).Encode(Lease{ID: "lease_1", Status: "offered", CheckoutURL: "https://checkout.test/s"})
+		_ = json.NewEncoder(w).Encode(Lease{ID: "lease_1", Status: "offered", BillingRecordID: "bill_1"})
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, DefaultChatBase, "org_key", "ten")
-	lease, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, "s", "c", 1, "22222222-2222-2222-2222-222222222222"))
+	lease, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, 1, "22222222-2222-2222-2222-222222222222"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lease.ID != "lease_1" || lease.CheckoutURL == "" {
+	if lease.ID != "lease_1" || lease.Status != "offered" || lease.BillingRecordID != "bill_1" {
 		t.Fatalf("%+v", lease)
 	}
 }
@@ -121,7 +128,7 @@ func TestCreateLeaseMissingDeviceIDDoesNotPOST(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClient(srv.URL, DefaultChatBase, "org_key", "ten")
-	_, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, "s", "c", 1, ""))
+	_, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, 1, ""))
 	if err == nil {
 		t.Fatal("expected device_id error")
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/mcp"
+	"github.com/hyperme-sh/hypermesh-cli/internal/mcp"
 )
 
 func TestMCPCatalogAndImportDoctor(t *testing.T) {

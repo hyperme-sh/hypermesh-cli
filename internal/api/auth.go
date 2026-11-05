@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
-// Forbidden renter identity prefixes. These are host / router / site
-// credentials, never a renter API key.
-var ForbiddenRenterPrefixes = []string{"hm_dev_", "hm_rtr_", "hm_site_"}
+// Forbidden renter identity prefixes. These are host, router, gateway,
+// and site credentials, never a renter API key.
+// hm_dev_ / hm_site_ / hm_gw_: hypermesh-gateway renter_auth.py.
+// hm_rtr_ stays refused: it is not a renter identity.
+var ForbiddenRenterPrefixes = []string{"hm_dev_", "hm_rtr_", "hm_gw_", "hm_site_"}
 
 func ValidateRenterKey(key string) error {
 	key = strings.TrimSpace(key)

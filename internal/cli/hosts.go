@@ -9,7 +9,7 @@ func newHostsCmd(r *run) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hosts",
 		Short: "List renter-safe hosts (GET /api/v1/hypermesh/renter/hosts)",
-		Long:  "Same auth as checkout. Rows are device_id (UUID plane id), public_label (display only), class_id, certified, online, sell_state. Pass device_id to checkout; the CLI does not pick a host.",
+		Long:  "GET /api/v1/hypermesh/renter/hosts with the same X-Api-Key and X-Tenant-ID as checkout. Rows are device_id (UUID plane id), public_label (display only), class_id, certified, online, sell_state. Pass device_id to checkout; the CLI does not pick a host. catalog_id is the only query this command sends.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := r.client.GetRenterHosts(catalogID)
@@ -22,6 +22,6 @@ func newHostsCmd(r *run) *cobra.Command {
 			return printHostList(cmd.OutOrStdout(), raw)
 		},
 	}
-	cmd.Flags().StringVar(&catalogID, "catalog-id", "", "optional catalog_id query (only query key the API accepts)")
+	cmd.Flags().StringVar(&catalogID, "catalog-id", "", "optional catalog_id query")
 	return cmd
 }

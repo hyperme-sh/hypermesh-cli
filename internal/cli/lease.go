@@ -38,8 +38,7 @@ func newLeaseCmd(r *run) *cobra.Command {
 			if r.json {
 				return r.printRawJSON(raw)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "id\t%s\nstatus\t%s\ncheckout_url\t%s\n", lease.ID, lease.Status, lease.CheckoutURL)
-			return nil
+			return printLease(cmd.OutOrStdout(), lease)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{

@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 type chatOpts struct {
