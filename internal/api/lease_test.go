@@ -10,8 +10,6 @@ func TestLeaseCreateJSON(t *testing.T) {
 	body := NewLeaseCreate(
 		"11111111-1111-1111-1111-111111111111",
 		"llama-3.1-8b-q4",
-		"https://example.test/ok",
-		"https://example.test/cancel",
 		1,
 		"22222222-2222-2222-2222-222222222222",
 	)
@@ -27,8 +25,6 @@ func TestLeaseCreateJSON(t *testing.T) {
 		"kind":           KindP2LoadedModel,
 		"renter_user_id": "11111111-1111-1111-1111-111111111111",
 		"catalog_id":     DefaultCatalogID,
-		"success_url":    "https://example.test/ok",
-		"cancel_url":     "https://example.test/cancel",
 		"reserved_hours": float64(1),
 		"purpose":        PurposeRenter,
 		"device_id":      "22222222-2222-2222-2222-222222222222",
@@ -45,7 +41,7 @@ func TestLeaseCreateJSON(t *testing.T) {
 
 func TestLeaseCreateDefaults(t *testing.T) {
 	t.Parallel()
-	body := NewLeaseCreate("u", "", "s", "c", 0, "22222222-2222-2222-2222-222222222222")
+	body := NewLeaseCreate("u", "", 0, "22222222-2222-2222-2222-222222222222")
 	if body.CatalogID != DefaultCatalogID {
 		t.Fatalf("catalog default: %q", body.CatalogID)
 	}
@@ -62,20 +58,20 @@ func TestLeaseCreateDefaults(t *testing.T) {
 
 func TestLeaseCreateValidate(t *testing.T) {
 	t.Parallel()
-	body := NewLeaseCreate("", DefaultCatalogID, "s", "c", 1, "22222222-2222-2222-2222-222222222222")
+	body := NewLeaseCreate("", DefaultCatalogID, 1, "22222222-2222-2222-2222-222222222222")
 	if err := body.Validate(); err == nil {
 		t.Fatal("expected renter_user_id error")
 	}
-	body = NewLeaseCreate("u", DefaultCatalogID, "s", "c", 1, "22222222-2222-2222-2222-222222222222")
+	body = NewLeaseCreate("u", DefaultCatalogID, 1, "22222222-2222-2222-2222-222222222222")
 	body.Kind = "byom"
 	if err := body.Validate(); err == nil {
 		t.Fatal("expected kind lock")
 	}
-	body = NewLeaseCreate("u", DefaultCatalogID, "s", "c", 1, "")
+	body = NewLeaseCreate("u", DefaultCatalogID, 1, "")
 	if err := body.Validate(); err == nil {
 		t.Fatal("expected missing device_id error")
 	}
-	body = NewLeaseCreate("u", DefaultCatalogID, "s", "c", 1, "agx-large 22222222")
+	body = NewLeaseCreate("u", DefaultCatalogID, 1, "agx-large 22222222")
 	if err := body.Validate(); err == nil {
 		t.Fatal("expected public_label rejected")
 	}

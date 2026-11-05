@@ -16,14 +16,22 @@ const (
 	// It is not a catalog inventory; list ids with `hypermesh catalog`.
 	DefaultCatalogID = "llama-3.1-8b-q4"
 
+	// Control-plane paths. controlplane-edge forwards the /api/v1/hypermesh
+	// prefix to hypermesh-plane (edge-routes.json, product_routes.json).
+	// Route handlers: products/hypermesh/src/hypermesh_service/interfaces/api/routes.py
 	PathCatalog     = "/api/v1/hypermesh/catalog"
 	PathClasses     = "/api/v1/hypermesh/classes"
 	PathRenterHosts = "/api/v1/hypermesh/renter/hosts"
 	PathLeases      = "/api/v1/hypermesh/leases"
 
+	// Chat is the gateway openai router, on the chat host, outside the
+	// control-plane proxy. hypermesh-gateway routes.py openai_router
+	// POST /v1/chat/completions, included with no prefix in app.py.
 	PathChatCompletions = "/v1/chat/completions"
 
-	// PathRenterChatStub is unused by this client (chat uses DefaultChatBase).
+	// PathRenterChatStub is POST /api/v1/hypermesh/renter/chat/completions
+	// on hypermesh-plane. That handler always returns 409. This client
+	// never calls it.
 	PathRenterChatStub = "/api/v1/hypermesh/renter/chat/completions"
 )
 
@@ -54,7 +62,7 @@ func ClassesURL(apiBase string) (string, error) {
 }
 
 // RenterHostsURL is GET /api/v1/hypermesh/renter/hosts.
-// catalogID, when set, is the only query key (catalog_id).
+// catalogID, when set, is the only query key this client sends (catalog_id).
 func RenterHostsURL(apiBase, catalogID string) (string, error) {
 	u, err := JoinBase(apiBase, PathRenterHosts)
 	if err != nil {

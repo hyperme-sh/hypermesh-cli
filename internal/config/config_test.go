@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -15,8 +15,6 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv(EnvTenantID, "")
 	t.Setenv(EnvRenterUserID, "")
 	t.Setenv(EnvLeaseID, "")
-	t.Setenv(EnvSuccessURL, "")
-	t.Setenv(EnvCancelURL, "")
 	dir := t.TempDir()
 	cfg, err := LoadFrom(dir)
 	if err != nil {

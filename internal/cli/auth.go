@@ -5,13 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 func newAuthCmd(r *run) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Renter API key login (purpose: renter)",
+		Short: "Store an org API key and tenant id",
 	}
 	cmd.AddCommand(newAuthLoginCmd(r))
 	cmd.AddCommand(newAuthWhoamiCmd(r))
@@ -45,7 +45,7 @@ func newAuthLoginCmd(r *run) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "org API key from api-keys (purpose: renter)")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "org API key sent as X-Api-Key")
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "tenant id sent as X-Tenant-ID")
 	cmd.Flags().StringVar(&renterUserID, "renter-user-id", "", "uuid used as renter_user_id on checkout")
 	_ = cmd.MarkFlagRequired("api-key")
@@ -56,7 +56,7 @@ func newAuthLoginCmd(r *run) *cobra.Command {
 func newAuthWhoamiCmd(r *run) *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
-		Short: "Show local renter identity (no extra IdP call)",
+		Short: "Show the stored API key and tenant id",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keyOK := r.cfg.APIKey != ""
 			var keyErr string

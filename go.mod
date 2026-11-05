@@ -1,4 +1,4 @@
-module github.com/FyberLabs/hypermesh-cli
+module github.com/hyperme-sh/hypermesh-cli
 
 go 1.22.2
 

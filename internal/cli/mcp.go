@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/mcp"
+	"github.com/hyperme-sh/hypermesh-cli/internal/mcp"
 )
 
 func newMCPCmd(r *run) *cobra.Command {

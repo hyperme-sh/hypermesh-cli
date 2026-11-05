@@ -1,22 +1,22 @@
 # hypermesh-cli
 
-Thin **Hypermesh** CLI for [Hyperme.sh](https://hyperme.sh): browse the catalog, check out a lease, chat on the router, and manage local MCP config for the [desktop visor](https://github.com/FyberLabs/hypermesh-visor).
+Thin **Hypermesh** CLI for [Hyperme.sh](https://hyperme.sh): browse the catalog, create a lease, chat on the router, and manage local MCP config for the [desktop visor](https://github.com/hyperme-sh/hypermesh-visor).
 
 Binaries: `hypermesh` and `hm`.
 
 ```bash
-git clone https://github.com/FyberLabs/hypermesh-cli.git
+git clone https://github.com/hyperme-sh/hypermesh-cli.git
 cd hypermesh-cli
 make build    # bin/hypermesh and bin/hm
 make test
 make install  # PREFIX=/usr/local
 ```
 
-Or: `go install github.com/FyberLabs/hypermesh-cli/cmd/hypermesh@latest` (and the same for `cmd/hm`). Needs Go 1.22+.
+Or: `go install github.com/hyperme-sh/hypermesh-cli/cmd/hypermesh@latest` (and the same for `cmd/hm`). Needs Go 1.22+.
 
 ## Auth
 
-Use a renter org API key and tenant id (same key for API and chat).
+Use an org API key and tenant id. The same headers go to the API host and the chat host. This CLI stores the key locally. It does not mint a token.
 
 ```bash
 hypermesh auth login \
@@ -32,8 +32,12 @@ Authenticated requests send:
 
 | Header | Value |
 |---|---|
-| `X-Api-Key` | renter org key |
+| `X-Api-Key` | org API key (`prefix.secret` from api-keys-service) |
 | `X-Tenant-ID` | tenant id |
+
+`api.test.hyperme.sh` checks that pair and exchanges the key before the request reaches hypermesh-plane. Chat on `chat.test.hyperme.sh` reads the same headers plus the lease id. `hm_dev_`, `hm_rtr_`, `hm_gw_`, and `hm_site_` are rejected before any request is sent.
+
+Lease create on the plane accepts the exchanged key when its purpose is `service`. Chat accepts a renter key whose fingerprint was published for that tenant, plus a paid lease. api-keys-service publishes that renter fingerprint at mint for every key purpose.
 
 Config directory: `~/.config/hypermesh` (or `HYPERMESH_CONFIG_DIR`).
 
@@ -58,9 +62,6 @@ hypermesh checkout \
   --device-id "$DEVICE_ID" \
   --catalog-id "$CATALOG_ID" \
   --renter-user-id "$HYPERMESH_RENTER_USER_ID" \
-  --success-url "https://hyperme.sh/ok" \
-  --cancel-url "https://hyperme.sh/cancel" \
-  --no-open \
   --wait
 
 hypermesh lease list
@@ -75,13 +76,15 @@ text=$(hypermesh prompt --script --lease-id "$LEASE_ID" "hello")
 hypermesh lease complete "$LEASE_ID"
 ```
 
-Pick `CATALOG_ID` from `hypermesh catalog` and `DEVICE_ID` from `hypermesh hosts`. Checkout opens Stripe Checkout unless you pass `--no-open`; `--wait` polls until the lease is ready.
+Pick `CATALOG_ID` from `hypermesh catalog` and `DEVICE_ID` from `hypermesh hosts`. `checkout` prints the lease id as soon as create returns. `--wait` polls until the lease is `active`, `ended`, `failed`, or `refunded`.
 
 With `--script`, stdout is the assistant text and failures exit `1`. Use `--json` when you want the raw response (not with `--script`).
 
 ## API map
 
 Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CHAT_BASE=https://chat.test.hyperme.sh`.
+
+The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-plane. Chat is hypermesh-gateway on its own host.
 
 | Command | Method | Path |
 |---|---|---|
@@ -94,7 +97,9 @@ Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CHAT_BASE
 | `lease complete` | `POST` | `/api/v1/hypermesh/leases/{id}/complete` |
 | `chat` / `prompt` / `completions create` | `POST` | `{chat base}/v1/chat/completions` |
 
-`catalog` and `classes` are public. The rest need the renter key.
+`catalog` and `classes` are public. The rest need the API key and tenant id.
+
+`catalog show` filters the public catalog list on the client. There is no `GET /catalog/{id}` on the plane.
 
 ### Checkout body
 
@@ -103,15 +108,17 @@ Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CHAT_BASE
   "kind": "p2_loaded_model",
   "renter_user_id": "<uuid>",
   "catalog_id": "<from catalog>",
-  "success_url": "…",
-  "cancel_url": "…",
   "reserved_hours": 1,
   "purpose": "renter",
   "device_id": "<from hosts>"
 }
 ```
 
-`device_id` is the UUID plane id from `hosts` (not `public_label`). Lease status moves `offered` → `paid` → `starting` → `active`, then `ended` / `failed` / `refunded`.
+`device_id` is the UUID plane id from `hosts` (not `public_label`). The plane opens the USDC lease payment and returns the lease id on that POST. The lease document has `billing_record_id` when the payment row exists. It has no checkout URL. This CLI does not call `/api/v1/hypermesh/renter/chat/completions` (that route always answers 409).
+
+`renter_user_id` must match the user bound to the exchanged key. A mismatch is refused by the plane.
+
+Lease status moves `offered` → `paid` → `starting` → `active`, then `ended` / `failed` / `refunded`. `suspended` is also a plane status; `--wait` keeps polling it.
 
 ### Chat
 
@@ -124,7 +131,7 @@ Prompt bodies are not logged.
 
 ## Local MCP
 
-Config for the [hypermesh-visor](https://github.com/FyberLabs/hypermesh-visor) companion (visor attaches the active profile on session open):
+Config for the [hypermesh-visor](https://github.com/hyperme-sh/hypermesh-visor) companion (visor attaches the active profile on session open):
 
 ```bash
 hypermesh mcp catalog ls
@@ -159,7 +166,7 @@ Project import merges `.hypermesh/mcp.json` or `.cursor/mcp.json` from a path (o
 | `HYPERMESH_API_BASE` | `https://api.test.hyperme.sh` |
 | `HYPERMESH_CHAT_BASE` | `https://chat.test.hyperme.sh` |
 
-Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `HYPERMESH_LEASE_ID`, `HYPERMESH_SUCCESS_URL`, `HYPERMESH_CANCEL_URL`, `HYPERMESH_CONFIG_DIR`, `HYPERMESH_VISOR_URL`.
+Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `HYPERMESH_LEASE_ID`, `HYPERMESH_CONFIG_DIR`, `HYPERMESH_VISOR_URL`.
 
 ## Commands
 
@@ -168,7 +175,7 @@ Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `H
 | `auth …` | local config |
 | `catalog` / `classes` | public catalog |
 | `hosts` | renter hosts |
-| `checkout` / `lease …` | leases + Stripe Checkout |
+| `checkout` / `lease …` | leases |
 | `chat` / `prompt` / `completions create` | router chat |
 | `mcp …` | local MCP config |
 

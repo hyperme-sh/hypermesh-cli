@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/api"
+	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 )
 
 const (
@@ -17,8 +17,6 @@ const (
 	EnvRenterUserID = "HYPERMESH_RENTER_USER_ID"
 	EnvLeaseID      = "HYPERMESH_LEASE_ID"
 	EnvConfigDir    = "HYPERMESH_CONFIG_DIR"
-	EnvSuccessURL   = "HYPERMESH_SUCCESS_URL"
-	EnvCancelURL    = "HYPERMESH_CANCEL_URL"
 )
 
 type Config struct {
@@ -28,8 +26,6 @@ type Config struct {
 	TenantID     string
 	RenterUserID string
 	LeaseID      string
-	SuccessURL   string
-	CancelURL    string
 	Dir          string
 }
 
@@ -102,12 +98,6 @@ func applyMap(cfg *Config, m map[string]string) {
 	if v := m["renter_user_id"]; v != "" {
 		cfg.RenterUserID = v
 	}
-	if v := m["success_url"]; v != "" {
-		cfg.SuccessURL = v
-	}
-	if v := m["cancel_url"]; v != "" {
-		cfg.CancelURL = v
-	}
 }
 
 func applyEnv(cfg *Config) {
@@ -128,12 +118,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvLeaseID)); v != "" {
 		cfg.LeaseID = v
-	}
-	if v := strings.TrimSpace(os.Getenv(EnvSuccessURL)); v != "" {
-		cfg.SuccessURL = v
-	}
-	if v := strings.TrimSpace(os.Getenv(EnvCancelURL)); v != "" {
-		cfg.CancelURL = v
 	}
 }
 
@@ -156,12 +140,6 @@ func (c Config) WriteLogin(apiKey, tenantID, renterUserID string) error {
 		cfgMap["renter_user_id"] = renterUserID
 	} else if c.RenterUserID != "" {
 		cfgMap["renter_user_id"] = c.RenterUserID
-	}
-	if c.SuccessURL != "" {
-		cfgMap["success_url"] = c.SuccessURL
-	}
-	if c.CancelURL != "" {
-		cfgMap["cancel_url"] = c.CancelURL
 	}
 	if err := os.WriteFile(ConfigPath(c.Dir), encodeTOML(cfgMap), 0o644); err != nil {
 		return err
@@ -214,7 +192,7 @@ func parseTOML(raw []byte) (map[string]string, error) {
 }
 
 func encodeTOML(m map[string]string) []byte {
-	order := []string{"api_base", "chat_base", "tenant_id", "renter_user_id", "success_url", "cancel_url", "api_key"}
+	order := []string{"api_base", "chat_base", "tenant_id", "renter_user_id", "api_key"}
 	var b strings.Builder
 	seen := map[string]bool{}
 	for _, k := range order {
