@@ -15,7 +15,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/terms"
+	"github.com/hyperme-sh/hypermesh-cli/internal/terms"
 )
 
 var errTimeout = errors.New("pty command timed out")

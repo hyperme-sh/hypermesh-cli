@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/terms"
+	"github.com/hyperme-sh/hypermesh-cli/internal/terms"
 )
 
 func newTermsCmd() *cobra.Command {

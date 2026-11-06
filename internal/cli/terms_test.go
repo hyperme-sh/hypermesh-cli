@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FyberLabs/hypermesh-cli/internal/terms"
+	"github.com/hyperme-sh/hypermesh-cli/internal/terms"
 )
 
 func TestTermsAcceptedViaFlag(t *testing.T) {
