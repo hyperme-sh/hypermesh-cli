@@ -19,6 +19,7 @@ type run struct {
 	json     bool
 	apiBase  string
 	chatBase string
+	license  string
 	cfg      config.Config
 	client   *api.Client
 }
@@ -28,11 +29,17 @@ func New(name string) *cobra.Command {
 	root := &cobra.Command{
 		Use:               name,
 		Short:             "Thin Hypermesh CLI — catalog, checkout, chat, and local MCP",
-		Long:              "Hypermesh (Hyperme.sh) renter CLI: browse the catalog, check out a lease, chat on the router, and manage local MCP for the desktop visor.",
+		Long:              "Hypermesh (Hyperme.sh) renter CLI: browse the catalog, check out a lease, chat on the router, and manage local MCP for the desktop visor.\n\nAccept the Hypermesh Terms with --license accept or HYPERMESH_LICENSE=accept. hypermesh terms prints the text. Host install --yes is a separate choice.",
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := gateTerms(cmd, r.license); err != nil {
+				return err
+			}
+			if termsExempt(cmd) {
+				return nil
+			}
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -51,6 +58,7 @@ func New(name string) *cobra.Command {
 	root.PersistentFlags().BoolVar(&r.json, "json", false, "print machine-readable JSON")
 	root.PersistentFlags().StringVar(&r.apiBase, "api-base", "", "override HYPERMESH_API_BASE")
 	root.PersistentFlags().StringVar(&r.chatBase, "chat-base", "", "override HYPERMESH_CHAT_BASE")
+	root.PersistentFlags().StringVar(&r.license, "license", "", "accept the Hypermesh Terms (value: accept)")
 
 	root.AddCommand(newAuthCmd(r))
 	root.AddCommand(newCatalogCmd(r))
@@ -62,6 +70,8 @@ func New(name string) *cobra.Command {
 	root.AddCommand(newPromptCmd(r))
 	root.AddCommand(newCompletionsCmd(r))
 	root.AddCommand(newMCPCmd(r))
+	root.AddCommand(newTermsCmd())
+	root.AddCommand(newVersionCmd())
 	return root
 }
 

@@ -14,6 +14,8 @@ vet:
 test:
 	go test ./...
 
+# Terms acceptance is --license accept or HYPERMESH_LICENSE=accept.
+# Host install consent (--yes) is a separate choice.
 install: build
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 bin/hypermesh $(DESTDIR)$(BINDIR)/hypermesh

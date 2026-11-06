@@ -141,6 +141,7 @@ func runHypermeshConfig(t *testing.T, configDir string, args ...string) scriptRe
 		"HYPERMESH_API_KEY=org_key",
 		"HYPERMESH_TENANT_ID=ten",
 	)
+	cmd.Env = append(cmd.Env, termsAcceptEnv(t)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
