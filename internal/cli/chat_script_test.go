@@ -150,7 +150,7 @@ func TestPowerShellWrapperHasNoSecondClient(t *testing.T) {
 			t.Fatalf("wrapper contains %q", bad)
 		}
 	}
-	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt"} {
+	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt", "--license", "HYPERMESH_LICENSE"} {
 		if !strings.Contains(src, need) {
 			t.Fatalf("wrapper missing %q", need)
 		}
@@ -253,6 +253,7 @@ func runHypermesh(t *testing.T, chatBase string, args ...string) scriptResult {
 		"HYPERMESH_API_KEY=org_key",
 		"HYPERMESH_TENANT_ID=ten",
 	)
+	cmd.Env = append(cmd.Env, termsAcceptEnv(t)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -273,7 +274,7 @@ func runPwsh(t *testing.T, pwsh, script string, args []string, env map[string]st
 	argv := []string{"-NoProfile", "-File", script}
 	argv = append(argv, args...)
 	cmd := exec.Command(pwsh, argv...)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), termsAcceptEnv(t)...)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

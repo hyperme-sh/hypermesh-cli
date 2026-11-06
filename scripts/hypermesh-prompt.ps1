@@ -2,6 +2,9 @@
 # Stdout is only the model text. The process status matches the hypermesh binary.
 # This script execs that binary. It does not open its own network client.
 # Chat stays POST {chat base}/v1/chat/completions inside the binary.
+# Terms acceptance is separate from host install --yes.
+# -License accept passes --license accept through.
+# HYPERMESH_LICENSE is inherited and, when set, also passed as --license.
 
 [CmdletBinding()]
 param(
@@ -18,7 +21,9 @@ param(
 
     [string] $ApiBase,
 
-    [string] $ChatBase
+    [string] $ChatBase,
+
+    [string] $License
 )
 
 $ErrorActionPreference = 'Continue'
@@ -48,7 +53,14 @@ function Get-HypermeshBinary {
 }
 
 $bin = Get-HypermeshBinary -Explicit $Binary
+if (-not $License -and $env:HYPERMESH_LICENSE) {
+    $License = $env:HYPERMESH_LICENSE
+}
 $argList = New-Object System.Collections.Generic.List[string]
+if ($License) {
+    $argList.Add('--license')
+    $argList.Add($License)
+}
 if ($ApiBase) {
     $argList.Add('--api-base')
     $argList.Add($ApiBase)

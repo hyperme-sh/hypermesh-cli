@@ -47,6 +47,7 @@ func TestPromptStreamSendsOnePromptAndHidesTheKey(t *testing.T) {
 		"HYPERMESH_TENANT_ID=ten",
 		"HYPERMESH_LEASE_ID=lease_should_not_be_sent",
 	)
+	cmd.Env = append(cmd.Env, termsAcceptEnv(t)...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

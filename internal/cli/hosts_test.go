@@ -39,6 +39,7 @@ func TestCheckoutMissingDeviceIDDoesNotPOST(t *testing.T) {
 	t.Setenv("HYPERMESH_CONFIG_DIR", t.TempDir())
 	t.Setenv("HYPERMESH_API_KEY", "org_key")
 	t.Setenv("HYPERMESH_TENANT_ID", "ten")
+	acceptTermsForTest(t)
 	cmd := New("hypermesh")
 	cmd.SetArgs([]string{
 		"--api-base", srv.URL,
@@ -68,6 +69,7 @@ func TestCheckoutRejectsPublicLabelBeforePOST(t *testing.T) {
 	t.Setenv("HYPERMESH_CONFIG_DIR", t.TempDir())
 	t.Setenv("HYPERMESH_API_KEY", "org_key")
 	t.Setenv("HYPERMESH_TENANT_ID", "ten")
+	acceptTermsForTest(t)
 	cmd := New("hypermesh")
 	cmd.SetArgs([]string{
 		"--api-base", srv.URL,
@@ -100,6 +102,7 @@ func TestHostsListsRenterSafeRows(t *testing.T) {
 	t.Setenv("HYPERMESH_CONFIG_DIR", t.TempDir())
 	t.Setenv("HYPERMESH_API_KEY", "org_key")
 	t.Setenv("HYPERMESH_TENANT_ID", "ten")
+	acceptTermsForTest(t)
 	cmd := New("hypermesh")
 	var out bytes.Buffer
 	cmd.SetOut(&out)

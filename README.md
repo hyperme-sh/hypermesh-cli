@@ -14,6 +14,28 @@ make install  # PREFIX=/usr/local
 
 Or: `go install github.com/hyperme-sh/hypermesh-cli/cmd/hypermesh@latest` (and the same for `cmd/hm`). Needs Go 1.22+.
 
+Pass Terms acceptance through to the installed binary. `--license accept` and `HYPERMESH_LICENSE=accept` record it. Host install consent (`--yes`) is a separate choice.
+
+```bash
+hypermesh --license accept auth whoami
+HYPERMESH_LICENSE=accept hypermesh auth whoami
+```
+
+## Terms
+
+Commands other than `--help`, `help`, `version`, and `terms` require the Hypermesh Terms before they do any network or local work. `hypermesh terms` prints the Terms, the version id, and the SHA-256 of that text.
+
+```bash
+hypermesh terms
+hypermesh terms --accept
+hypermesh --license accept catalog
+HYPERMESH_LICENSE=accept hypermesh catalog
+```
+
+In a terminal the CLI prints the Terms and asks `Accept the Hypermesh Terms? [y/N]`. `y` or `yes` records acceptance. Any other `--license` value is an error.
+
+The stamp is `terms-accepted.json` under the user config directory (`UserConfigDir()/hypermesh`). It stores `version`, `sha256`, and `accepted_at` (UTC). On Linux that directory is `$XDG_CONFIG_HOME/hypermesh` when `XDG_CONFIG_HOME` is set, and `~/.config/hypermesh` otherwise. A stamp whose version or hash differs from the embedded Terms asks again. Non-interactive runs without acceptance exit `1` and name `--license accept`, `HYPERMESH_LICENSE=accept`, and the version id.
+
 ## Auth
 
 Use an org API key and tenant id. The same headers go to the API host and the chat host. This CLI stores the key locally. It does not mint a token.
@@ -48,6 +70,7 @@ Config directory: `~/.config/hypermesh` (or `HYPERMESH_CONFIG_DIR`).
 | `mcp.json` | MCP servers |
 | `mcp-profiles.json` | named MCP profiles |
 | `mcp-bindings.json` | focused-app → server bindings |
+| `terms-accepted.json` | Terms stamp (`version`, `sha256`, `accepted_at`) in `UserConfigDir()/hypermesh` |
 
 ## Usage
 
@@ -71,7 +94,8 @@ hypermesh prompt --script --lease-id "$LEASE_ID" "hello"
 hypermesh chat --script --lease-id "$LEASE_ID" --message "hello"
 
 text=$(hypermesh prompt --script --lease-id "$LEASE_ID" "hello")
-./scripts/hypermesh-prompt.ps1 -LeaseId "$LEASE_ID" "hello"
+HYPERMESH_LICENSE=accept ./scripts/hypermesh-prompt.ps1 -LeaseId "$LEASE_ID" "hello"
+./scripts/hypermesh-prompt.ps1 -License accept -LeaseId "$LEASE_ID" "hello"
 
 hypermesh lease complete "$LEASE_ID"
 ```
@@ -165,13 +189,18 @@ Project import merges `.hypermesh/mcp.json` or `.cursor/mcp.json` from a path (o
 |---|---|
 | `HYPERMESH_API_BASE` | `https://api.test.hyperme.sh` |
 | `HYPERMESH_CHAT_BASE` | `https://chat.test.hyperme.sh` |
+| `HYPERMESH_LICENSE` | unset; `accept` records the Hypermesh Terms |
 
 Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `HYPERMESH_LEASE_ID`, `HYPERMESH_CONFIG_DIR`, `HYPERMESH_VISOR_URL`.
+
+`HYPERMESH_LICENSE=accept` is the same acceptance as `--license accept`. Pass either one through scripts that exec `hypermesh` or `hm`.
 
 ## Commands
 
 | Command | Role |
 |---|---|
+| `terms` | print the Terms; `--accept` records acceptance |
+| `version` | build version (no Terms stamp required) |
 | `auth …` | local config |
 | `catalog` / `classes` | public catalog |
 | `hosts` | renter hosts |
