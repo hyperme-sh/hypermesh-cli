@@ -10,23 +10,27 @@ import (
 )
 
 const (
-	EnvAPIBase      = "HYPERMESH_API_BASE"
-	EnvChatBase     = "HYPERMESH_CHAT_BASE"
-	EnvAPIKey       = "HYPERMESH_API_KEY"
-	EnvTenantID     = "HYPERMESH_TENANT_ID"
-	EnvRenterUserID = "HYPERMESH_RENTER_USER_ID"
-	EnvLeaseID      = "HYPERMESH_LEASE_ID"
-	EnvConfigDir    = "HYPERMESH_CONFIG_DIR"
+	EnvAPIBase          = "HYPERMESH_API_BASE"
+	EnvConductorBase    = "HYPERMESH_CONDUCTOR_BASE"
+	EnvConductorClass   = "HYPERMESH_CONDUCTOR_CLASS"
+	EnvConductorSuggest = "HYPERMESH_CONDUCTOR_SUGGEST"
+	EnvAPIKey           = "HYPERMESH_API_KEY"
+	EnvTenantID         = "HYPERMESH_TENANT_ID"
+	EnvRenterUserID     = "HYPERMESH_RENTER_USER_ID"
+	EnvLeaseID          = "HYPERMESH_LEASE_ID"
+	EnvConfigDir        = "HYPERMESH_CONFIG_DIR"
 )
 
 type Config struct {
-	APIBase      string
-	ChatBase     string
-	APIKey       string
-	TenantID     string
-	RenterUserID string
-	LeaseID      string
-	Dir          string
+	APIBase          string
+	ConductorBase    string
+	ConductorClass   string
+	ConductorSuggest string
+	APIKey           string
+	TenantID         string
+	RenterUserID     string
+	LeaseID          string
+	Dir              string
 }
 
 func Dir() string {
@@ -57,9 +61,9 @@ func Load() (Config, error) {
 
 func LoadFrom(dir string) (Config, error) {
 	cfg := Config{
-		APIBase:  api.DefaultAPIBase,
-		ChatBase: api.DefaultChatBase,
-		Dir:      dir,
+		APIBase:       api.DefaultAPIBase,
+		ConductorBase: api.DefaultConductorBase,
+		Dir:           dir,
 	}
 	if raw, err := os.ReadFile(ConfigPath(dir)); err == nil {
 		m, err := parseTOML(raw)
@@ -89,8 +93,14 @@ func applyMap(cfg *Config, m map[string]string) {
 	if v := m["api_base"]; v != "" {
 		cfg.APIBase = v
 	}
-	if v := m["chat_base"]; v != "" {
-		cfg.ChatBase = v
+	if v := m["conductor_base"]; v != "" {
+		cfg.ConductorBase = v
+	}
+	if v := m["conductor_class"]; v != "" {
+		cfg.ConductorClass = v
+	}
+	if v := m["conductor_suggest"]; v != "" {
+		cfg.ConductorSuggest = v
 	}
 	if v := m["tenant_id"]; v != "" {
 		cfg.TenantID = v
@@ -104,8 +114,14 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv(EnvAPIBase)); v != "" {
 		cfg.APIBase = v
 	}
-	if v := strings.TrimSpace(os.Getenv(EnvChatBase)); v != "" {
-		cfg.ChatBase = v
+	if v := strings.TrimSpace(os.Getenv(EnvConductorBase)); v != "" {
+		cfg.ConductorBase = v
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvConductorClass)); v != "" {
+		cfg.ConductorClass = v
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvConductorSuggest)); v != "" {
+		cfg.ConductorSuggest = v
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvAPIKey)); v != "" {
 		cfg.APIKey = v
@@ -132,9 +148,15 @@ func (c Config) WriteLogin(apiKey, tenantID, renterUserID string) error {
 		return err
 	}
 	cfgMap := map[string]string{
-		"api_base":  first(c.APIBase, api.DefaultAPIBase),
-		"chat_base": first(c.ChatBase, api.DefaultChatBase),
-		"tenant_id": tenantID,
+		"api_base":       first(c.APIBase, api.DefaultAPIBase),
+		"conductor_base": first(c.ConductorBase, api.DefaultConductorBase),
+		"tenant_id":      tenantID,
+	}
+	if c.ConductorClass != "" {
+		cfgMap["conductor_class"] = c.ConductorClass
+	}
+	if c.ConductorSuggest != "" {
+		cfgMap["conductor_suggest"] = c.ConductorSuggest
 	}
 	if renterUserID != "" {
 		cfgMap["renter_user_id"] = renterUserID
@@ -192,7 +214,7 @@ func parseTOML(raw []byte) (map[string]string, error) {
 }
 
 func encodeTOML(m map[string]string) []byte {
-	order := []string{"api_base", "chat_base", "tenant_id", "renter_user_id", "api_key"}
+	order := []string{"api_base", "conductor_base", "conductor_class", "conductor_suggest", "tenant_id", "renter_user_id", "api_key"}
 	var b strings.Builder
 	seen := map[string]bool{}
 	for _, k := range order {

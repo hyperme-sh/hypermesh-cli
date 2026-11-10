@@ -16,20 +16,26 @@ const HeaderLeaseID = "X-Hypermesh-Lease-Id"
 const HeaderLeaseIDAlt = "X-Lease-Id"
 
 type Client struct {
-	HTTP     *http.Client
-	APIBase  string
-	ChatBase string
-	APIKey   string
-	TenantID string
+	HTTP           *http.Client
+	APIBase        string
+	ConductorBase  string
+	APIKey         string
+	TenantID       string
+	ConductorClass string
+	// ConductorSuggest is optional. Conductor rejects a suggestion above the policy tier.
+	ConductorSuggest string
+	// ConductorToken is X-Conductor-Token. It is read from the environment
+	// and is not stored in config.toml.
+	ConductorToken string
 }
 
-func NewClient(apiBase, chatBase, apiKey, tenantID string) *Client {
+func NewClient(apiBase, conductorBase, apiKey, tenantID string) *Client {
 	return &Client{
-		HTTP:     &http.Client{Timeout: 30 * time.Second},
-		APIBase:  apiBase,
-		ChatBase: chatBase,
-		APIKey:   apiKey,
-		TenantID: tenantID,
+		HTTP:          &http.Client{Timeout: 30 * time.Second},
+		APIBase:       apiBase,
+		ConductorBase: conductorBase,
+		APIKey:        apiKey,
+		TenantID:      tenantID,
 	}
 }
 
@@ -198,6 +204,11 @@ type ChatRequest struct {
 	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
 	LeaseID  string        `json:"lease_id,omitempty"`
+	// Class and Suggest are conductor headers, not JSON fields. Conductor
+	// strips a conductor_ prefix before forwarding, but the headers are the
+	// documented client surface (internal/proxy/proxy.go identity).
+	Class   string `json:"-"`
+	Suggest string `json:"-"`
 }
 
 func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawMessage, error) {
@@ -205,7 +216,7 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 		return nil, err
 	}
 	if strings.TrimSpace(leaseID) == "" && strings.TrimSpace(reqBody.LeaseID) == "" {
-		return nil, fmt.Errorf("lease id is required for router chat")
+		return nil, fmt.Errorf("lease id is required for conductor chat")
 	}
 	if reqBody.LeaseID == "" {
 		reqBody.LeaseID = leaseID
@@ -216,7 +227,7 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 	if len(reqBody.Messages) == 0 {
 		return nil, fmt.Errorf("messages are required")
 	}
-	u, err := ChatCompletionsURL(c.ChatBase)
+	u, err := ChatCompletionsURL(c.ConductorBase)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +241,31 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	c.applyRenterHeaders(req)
-	req.Header.Set(HeaderLeaseID, reqBody.LeaseID)
-	req.Header.Set(HeaderLeaseIDAlt, reqBody.LeaseID)
+	// Conductor openai passthrough reads Authorization: Bearer and forwards
+	// that header. It does not read X-Api-Key. The gateway accepts an API key
+	// in either header, and rejects the request when both are present
+	// (hypermesh-gateway renter_auth.py _reject_ambiguous_credentials).
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.APIKey))
+	class := strings.TrimSpace(reqBody.Class)
+	if class == "" {
+		class = strings.TrimSpace(c.ConductorClass)
+	}
+	if class != "" {
+		req.Header.Set(HeaderConductorClass, class)
+	}
+	suggest := strings.TrimSpace(reqBody.Suggest)
+	if suggest == "" {
+		suggest = strings.TrimSpace(c.ConductorSuggest)
+	}
+	if suggest != "" {
+		req.Header.Set(HeaderConductorSuggest, suggest)
+	}
+	if task := strings.TrimSpace(reqBody.LeaseID); conductorTaskID(task) {
+		req.Header.Set(HeaderConductorTask, task)
+	}
+	if token := strings.TrimSpace(c.ConductorToken); token != "" {
+		req.Header.Set(HeaderConductorToken, token)
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -268,7 +301,23 @@ func chatErrorHint(raw []byte) string {
 			return env.Detail
 		}
 	}
-	return "router rejected the request"
+	return "conductor rejected the request"
+}
+
+// conductorTaskID matches hypermesh-conductor internal/proxy/proxy.go idPattern.
+func conductorTaskID(id string) bool {
+	if id == "" || len(id) > 200 {
+		return false
+	}
+	for i, r := range id {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case i > 0 && (r == '.' || r == '_' || r == ':' || r == '-'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func AssistantText(raw json.RawMessage) string {

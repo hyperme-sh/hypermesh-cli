@@ -16,20 +16,20 @@ import (
 const ExitFailure = 1
 
 type run struct {
-	json     bool
-	apiBase  string
-	chatBase string
-	license  string
-	cfg      config.Config
-	client   *api.Client
+	json          bool
+	apiBase       string
+	conductorBase string
+	license       string
+	cfg           config.Config
+	client        *api.Client
 }
 
 func New(name string) *cobra.Command {
 	r := &run{}
 	root := &cobra.Command{
 		Use:               name,
-		Short:             "Thin Hypermesh CLI — catalog, checkout, chat, and local MCP",
-		Long:              "Hypermesh (Hyperme.sh) renter CLI: browse the catalog, check out a lease, chat on the router, and manage local MCP for the desktop visor.\n\nAccept the Hypermesh Terms with --license accept or HYPERMESH_LICENSE=accept. hypermesh terms prints the text. Host install --yes is a separate choice.",
+		Short:             "Thin Hypermesh CLI — catalog, checkout, conductor chat, and local MCP",
+		Long:              "Hypermesh (Hyperme.sh) renter CLI: browse the catalog, check out a lease, send chat through Conductor, and manage local MCP for the desktop visor.\n\nAccept the Hypermesh Terms with --license accept or HYPERMESH_LICENSE=accept. hypermesh terms prints the text. Host install --yes is a separate choice.",
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
@@ -47,17 +47,20 @@ func New(name string) *cobra.Command {
 			if r.apiBase != "" {
 				cfg.APIBase = r.apiBase
 			}
-			if r.chatBase != "" {
-				cfg.ChatBase = r.chatBase
+			if r.conductorBase != "" {
+				cfg.ConductorBase = r.conductorBase
 			}
 			r.cfg = cfg
-			r.client = api.NewClient(cfg.APIBase, cfg.ChatBase, cfg.APIKey, cfg.TenantID)
+			r.client = api.NewClient(cfg.APIBase, cfg.ConductorBase, cfg.APIKey, cfg.TenantID)
+			r.client.ConductorClass = cfg.ConductorClass
+			r.client.ConductorSuggest = cfg.ConductorSuggest
+			r.client.ConductorToken = os.Getenv(api.EnvConductorProxyToken)
 			return nil
 		},
 	}
 	root.PersistentFlags().BoolVar(&r.json, "json", false, "print machine-readable JSON")
 	root.PersistentFlags().StringVar(&r.apiBase, "api-base", "", "override HYPERMESH_API_BASE")
-	root.PersistentFlags().StringVar(&r.chatBase, "chat-base", "", "override HYPERMESH_CHAT_BASE")
+	root.PersistentFlags().StringVar(&r.conductorBase, "conductor-base", "", "override HYPERMESH_CONDUCTOR_BASE (conductor origin, default http://127.0.0.1:8787)")
 	root.PersistentFlags().StringVar(&r.license, "license", "", "accept the Hypermesh Terms (value: accept)")
 
 	root.AddCommand(newAuthCmd(r))
@@ -69,6 +72,7 @@ func New(name string) *cobra.Command {
 	root.AddCommand(newChatCmd(r))
 	root.AddCommand(newPromptCmd(r))
 	root.AddCommand(newCompletionsCmd(r))
+	root.AddCommand(newRouteCmd(r))
 	root.AddCommand(newMCPCmd(r))
 	root.AddCommand(newTermsCmd())
 	root.AddCommand(newVersionCmd())

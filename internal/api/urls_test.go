@@ -29,7 +29,7 @@ func TestLockedAPIURLs(t *testing.T) {
 		{"leases", func() (string, error) { return LeasesURL(DefaultAPIBase) }, "https://api.test.hyperme.sh/api/v1/hypermesh/leases"},
 		{"lease", func() (string, error) { return LeaseURL(DefaultAPIBase, "abc") }, "https://api.test.hyperme.sh/api/v1/hypermesh/leases/abc"},
 		{"complete", func() (string, error) { return LeaseCompleteURL(DefaultAPIBase, "abc") }, "https://api.test.hyperme.sh/api/v1/hypermesh/leases/abc/complete"},
-		{"chat", func() (string, error) { return ChatCompletionsURL(DefaultChatBase) }, "https://chat.test.hyperme.sh/v1/chat/completions"},
+		{"chat", func() (string, error) { return ChatCompletionsURL(DefaultConductorBase) }, "http://127.0.0.1:8787/v1/chat/completions"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestChatURLNeverUsesAPIBaseStub(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(u, "/api/v1/hypermesh/") {
-		t.Fatalf("chat must stay on the router completions path, got %q", u)
+		t.Fatalf("chat must stay on the conductor completions path, got %q", u)
 	}
 	if want := "https://api.test.hyperme.sh/v1/chat/completions"; u != want {
 		t.Fatalf("got %q want %q", u, want)
@@ -83,6 +83,27 @@ func TestLeaseURLRequiresID(t *testing.T) {
 	t.Parallel()
 	if _, err := LeaseURL(DefaultAPIBase, ""); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestConductorOriginAndOpenAIRoot(t *testing.T) {
+	t.Parallel()
+	origin, err := ConductorOrigin(DefaultConductorBase + "/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if origin != DefaultConductorBase {
+		t.Fatalf("origin %s", origin)
+	}
+	root, err := OpenAIRoot(DefaultConductorBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != DefaultConductorBase+"/v1" {
+		t.Fatalf("root %s", root)
+	}
+	if _, err := ConductorOrigin("http://user:pass@127.0.0.1:8787"); err == nil {
+		t.Fatal("userinfo must be rejected")
 	}
 }
 

@@ -17,15 +17,17 @@ type chatOpts struct {
 	Model   string
 	System  string
 	Text    string
+	Class   string
+	Suggest string
 	Script  bool
 }
 
 func newChatCmd(r *run) *cobra.Command {
-	var leaseID, model, message, system string
+	var leaseID, model, message, system, class, suggest string
 	var script bool
 	cmd := &cobra.Command{
 		Use:   "chat",
-		Short: "Chat on the Hypermesh router",
+		Short: "Chat through Conductor",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			text, err := messageOrStdin(message, args)
 			if err != nil {
@@ -36,21 +38,23 @@ func newChatCmd(r *run) *cobra.Command {
 				Model:   model,
 				System:  system,
 				Text:    text,
+				Class:   class,
+				Suggest: suggest,
 				Script:  script,
 			})
 		},
 	}
-	addChatFlags(cmd, &leaseID, &model, &message, &system, &script)
+	addChatFlags(cmd, &leaseID, &model, &message, &system, &class, &suggest, &script)
 	return cmd
 }
 
 func newPromptCmd(r *run) *cobra.Command {
-	var leaseID, model, message, system, sessionID, visor string
+	var leaseID, model, message, system, class, suggest, sessionID, visor string
 	var script bool
 	cmd := &cobra.Command{
 		Use:   "prompt [text...]",
 		Short: "Send a prompt; with --script, stdout is only the assistant text",
-		Long:  "POST {chat base}/v1/chat/completions. With --session, POST one prompt on the visor stream (X-Api-Key, and model only when --model is set). With --script, stdout is only the assistant text and the process exits 1 on failure. Diagnostics stay on stderr.",
+		Long:  "POST {conductor origin}/v1/chat/completions. Conductor chooses the tier model. With --session, POST one prompt on the visor stream (X-Api-Key, and model only when --model is set). With --script, stdout is only the assistant text and the process exits 1 on failure. Diagnostics stay on stderr.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			text, err := messageOrStdin(message, args)
 			if err != nil {
@@ -73,11 +77,13 @@ func newPromptCmd(r *run) *cobra.Command {
 				Model:   model,
 				System:  system,
 				Text:    text,
+				Class:   class,
+				Suggest: suggest,
 				Script:  script,
 			})
 		},
 	}
-	addChatFlags(cmd, &leaseID, &model, &message, &system, &script)
+	addChatFlags(cmd, &leaseID, &model, &message, &system, &class, &suggest, &script)
 	cmd.Flags().StringVar(&sessionID, "session", "", "open visor session that receives this prompt")
 	cmd.Flags().StringVar(&visor, "visor", "", "visor base URL (default http://127.0.0.1:9847 or HYPERMESH_VISOR_URL)")
 	return cmd
@@ -86,13 +92,13 @@ func newPromptCmd(r *run) *cobra.Command {
 func newCompletionsCmd(r *run) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "completions",
-		Short: "OpenAI-shaped chat completions against the Hypermesh router",
+		Short: "OpenAI-shaped chat completions through Conductor",
 	}
-	var leaseID, model, message, system string
+	var leaseID, model, message, system, class, suggest string
 	var script bool
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "POST https://chat.test.hyperme.sh/v1/chat/completions",
+		Short: "POST {conductor origin}/v1/chat/completions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			text, err := messageOrStdin(message, args)
 			if err != nil {
@@ -103,20 +109,24 @@ func newCompletionsCmd(r *run) *cobra.Command {
 				Model:   model,
 				System:  system,
 				Text:    text,
+				Class:   class,
+				Suggest: suggest,
 				Script:  script,
 			})
 		},
 	}
-	addChatFlags(create, &leaseID, &model, &message, &system, &script)
+	addChatFlags(create, &leaseID, &model, &message, &system, &class, &suggest, &script)
 	cmd.AddCommand(create)
 	return cmd
 }
 
-func addChatFlags(cmd *cobra.Command, leaseID, model, message, system *string, script *bool) {
-	cmd.Flags().StringVar(leaseID, "lease-id", "", "paid lease ticket (also HYPERMESH_LEASE_ID)")
-	cmd.Flags().StringVar(model, "model", api.DefaultCatalogID, "OpenAI-shaped model / catalog id")
+func addChatFlags(cmd *cobra.Command, leaseID, model, message, system, class, suggest *string, script *bool) {
+	cmd.Flags().StringVar(leaseID, "lease-id", "", "paid lease ticket (also HYPERMESH_LEASE_ID); sent as JSON lease_id and X-Conductor-Task")
+	cmd.Flags().StringVar(model, "model", api.DefaultCatalogID, "model sent to Conductor; Conductor replaces it with the tier model")
 	cmd.Flags().StringVar(message, "message", "", "user message (omit to read remaining args or stdin)")
 	cmd.Flags().StringVar(system, "system", "", "optional system message")
+	cmd.Flags().StringVar(class, "class", "", "job class (X-Conductor-Class). Conductor refuses the call when this and default_class are both empty")
+	cmd.Flags().StringVar(suggest, "suggest", "", "optional tier suggestion (X-Conductor-Suggest); an upgrade is rejected by Conductor")
 	cmd.Flags().BoolVar(script, "script", false, "non-interactive: stdout is only the model text; exit 1 on failure")
 }
 
@@ -194,6 +204,8 @@ func runChat(r *run, cmd *cobra.Command, opt chatOpts) error {
 		Model:    opt.Model,
 		Messages: messages,
 		LeaseID:  leaseID,
+		Class:    opt.Class,
+		Suggest:  opt.Suggest,
 	})
 	if err != nil {
 		return err

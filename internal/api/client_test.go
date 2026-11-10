@@ -51,7 +51,7 @@ func TestCreateLeaseHTTP(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, DefaultChatBase, "org_key", "ten")
+	c := NewClient(srv.URL, DefaultConductorBase, "org_key", "ten")
 	lease, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, 1, "22222222-2222-2222-2222-222222222222"))
 	if err != nil {
 		t.Fatal(err)
@@ -73,11 +73,20 @@ func TestChatCompletionsHTTP(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != PathChatCompletions {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		if r.Header.Get(HeaderAPIKey) != "org_key" {
-			t.Fatal("missing X-Api-Key")
+		if r.Header.Get("Authorization") != "Bearer org_key" {
+			t.Fatalf("authorization %q", r.Header.Get("Authorization"))
 		}
-		if r.Header.Get(HeaderLeaseID) != "lease_1" || r.Header.Get(HeaderLeaseIDAlt) != "lease_1" {
-			t.Fatal("missing lease headers")
+		if r.Header.Get(HeaderAPIKey) != "" || r.Header.Get(HeaderLeaseID) != "" || r.Header.Get(HeaderLeaseIDAlt) != "" || r.Header.Get(HeaderTenantID) != "" {
+			t.Fatal("conductor chat must not send plane or lease headers")
+		}
+		if r.Header.Get(HeaderConductorClass) != "code" {
+			t.Fatalf("class %q", r.Header.Get(HeaderConductorClass))
+		}
+		if r.Header.Get(HeaderConductorTask) != "lease_1" {
+			t.Fatalf("task %q", r.Header.Get(HeaderConductorTask))
+		}
+		if r.Header.Get(HeaderConductorToken) != "proxy-tok" {
+			t.Fatalf("token %q", r.Header.Get(HeaderConductorToken))
 		}
 		raw, _ := io.ReadAll(r.Body)
 		var body ChatRequest
@@ -92,6 +101,8 @@ func TestChatCompletionsHTTP(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(DefaultAPIBase, srv.URL, "org_key", "ten")
+	c.ConductorClass = "code"
+	c.ConductorToken = "proxy-tok"
 	raw, err := c.ChatCompletions("lease_1", ChatRequest{
 		Model:    DefaultCatalogID,
 		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
@@ -109,7 +120,7 @@ func TestChatCompletionsHTTP(t *testing.T) {
 
 func TestChatRejectsForbiddenKey(t *testing.T) {
 	t.Parallel()
-	c := NewClient(DefaultAPIBase, DefaultChatBase, "hm_rtr_nope", "ten")
+	c := NewClient(DefaultAPIBase, DefaultConductorBase, "hm_rtr_nope", "ten")
 	_, err := c.ChatCompletions("lease_1", ChatRequest{
 		Model:    DefaultCatalogID,
 		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
@@ -127,7 +138,7 @@ func TestCreateLeaseMissingDeviceIDDoesNotPOST(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	c := NewClient(srv.URL, DefaultChatBase, "org_key", "ten")
+	c := NewClient(srv.URL, DefaultConductorBase, "org_key", "ten")
 	_, _, err := c.CreateLease(NewLeaseCreate("u", DefaultCatalogID, 1, ""))
 	if err == nil {
 		t.Fatal("expected device_id error")
@@ -158,7 +169,7 @@ func TestGetRenterHosts(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"device_id":"22222222-2222-2222-2222-222222222222","public_label":"agx-large 22222222","class_id":"agx-large","certified":true,"online":true,"sell_state":"selling"}]`))
 	}))
 	defer srv.Close()
-	c := NewClient(srv.URL, DefaultChatBase, "org_key", "ten")
+	c := NewClient(srv.URL, DefaultConductorBase, "org_key", "ten")
 	raw, err := c.GetRenterHosts(DefaultCatalogID)
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +188,7 @@ func TestGetCatalogPublic(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"id":"llama-3.1-8b-q4"}]`))
 	}))
 	defer srv.Close()
-	c := NewClient(srv.URL, DefaultChatBase, "", "")
+	c := NewClient(srv.URL, DefaultConductorBase, "", "")
 	raw, err := c.GetCatalog()
 	if err != nil {
 		t.Fatal(err)

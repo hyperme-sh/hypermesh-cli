@@ -10,7 +10,8 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv(EnvAPIBase, "")
-	t.Setenv(EnvChatBase, "")
+	t.Setenv(EnvConductorBase, "")
+	t.Setenv(EnvConductorClass, "")
 	t.Setenv(EnvAPIKey, "")
 	t.Setenv(EnvTenantID, "")
 	t.Setenv(EnvRenterUserID, "")
@@ -20,14 +21,14 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.APIBase != api.DefaultAPIBase || cfg.ChatBase != api.DefaultChatBase {
+	if cfg.APIBase != api.DefaultAPIBase || cfg.ConductorBase != api.DefaultConductorBase {
 		t.Fatalf("%+v", cfg)
 	}
 }
 
 func TestLoadFileAndEnvOverride(t *testing.T) {
 	dir := t.TempDir()
-	toml := []byte("api_base = \"https://api.example.test\"\nchat_base = \"https://chat.example.test\"\ntenant_id = \"file-tenant\"\nrenter_user_id = \"file-user\"\n")
+	toml := []byte("api_base = \"https://api.example.test\"\nconductor_base = \"http://127.0.0.1:9999\"\nconductor_class = \"code\"\ntenant_id = \"file-tenant\"\nrenter_user_id = \"file-user\"\n")
 	if err := os.WriteFile(ConfigPath(dir), toml, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,8 @@ func TestLoadFileAndEnvOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(EnvAPIBase, "")
-	t.Setenv(EnvChatBase, "")
+	t.Setenv(EnvConductorBase, "")
+	t.Setenv(EnvConductorClass, "")
 	t.Setenv(EnvAPIKey, "")
 	t.Setenv(EnvTenantID, "")
 	t.Setenv(EnvRenterUserID, "")
@@ -43,23 +45,24 @@ func TestLoadFileAndEnvOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.APIBase != "https://api.example.test" || cfg.APIKey != "file_key" || cfg.TenantID != "file-tenant" {
+	if cfg.APIBase != "https://api.example.test" || cfg.ConductorBase != "http://127.0.0.1:9999" || cfg.ConductorClass != "code" || cfg.APIKey != "file_key" || cfg.TenantID != "file-tenant" {
 		t.Fatalf("file load %+v", cfg)
 	}
 	t.Setenv(EnvAPIBase, "https://api.override.test")
+	t.Setenv(EnvConductorBase, "http://127.0.0.1:7777")
 	t.Setenv(EnvAPIKey, "env_key")
 	cfg, err = LoadFrom(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.APIBase != "https://api.override.test" || cfg.APIKey != "env_key" {
+	if cfg.APIBase != "https://api.override.test" || cfg.ConductorBase != "http://127.0.0.1:7777" || cfg.APIKey != "env_key" {
 		t.Fatalf("env override %+v", cfg)
 	}
 }
 
 func TestWriteLoginPermissionsAndRejectHostKey(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{Dir: dir, APIBase: api.DefaultAPIBase, ChatBase: api.DefaultChatBase}
+	cfg := Config{Dir: dir, APIBase: api.DefaultAPIBase, ConductorBase: api.DefaultConductorBase}
 	if err := cfg.WriteLogin("hm_dev_nope", "ten", ""); err == nil {
 		t.Fatal("accepted host key")
 	}

@@ -150,7 +150,7 @@ func TestPowerShellWrapperHasNoSecondClient(t *testing.T) {
 			t.Fatalf("wrapper contains %q", bad)
 		}
 	}
-	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt", "--license", "HYPERMESH_LICENSE"} {
+	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt", "--license", "HYPERMESH_LICENSE", "--conductor-base"} {
 		if !strings.Contains(src, need) {
 			t.Fatalf("wrapper missing %q", need)
 		}
@@ -169,7 +169,7 @@ func TestPowerShellWrapperStdoutAndExit(t *testing.T) {
 
 	success := runPwsh(t, pwsh, script, []string{
 		"-Binary", bin,
-		"-ChatBase", srv.URL,
+		"-ConductorBase", srv.URL,
 		"-LeaseID", "lease_1",
 		"hello",
 	}, map[string]string{
@@ -190,7 +190,7 @@ func TestPowerShellWrapperStdoutAndExit(t *testing.T) {
 	failSrv := scriptRouter(t, http.StatusBadGateway, `{"error":{"message":"router down"}}`, "hello")
 	failure := runPwsh(t, pwsh, script, []string{
 		"-Binary", bin,
-		"-ChatBase", failSrv.URL,
+		"-ConductorBase", failSrv.URL,
 		"-LeaseID", "lease_1",
 		"hello",
 	}, map[string]string{
@@ -244,7 +244,7 @@ func runHypermesh(t *testing.T, chatBase string, args ...string) scriptResult {
 	t.Helper()
 	full := make([]string, 0, len(args)+2)
 	if chatBase != "" {
-		full = append(full, "--chat-base", chatBase)
+		full = append(full, "--conductor-base", chatBase)
 	}
 	full = append(full, args...)
 	cmd := exec.Command(testBinary(t), full...)

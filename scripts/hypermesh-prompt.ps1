@@ -1,7 +1,7 @@
 # Non-interactive Hypermesh chat for PowerShell.
 # Stdout is only the model text. The process status matches the hypermesh binary.
 # This script execs that binary. It does not open its own network client.
-# Chat stays POST {chat base}/v1/chat/completions inside the binary.
+# Chat stays POST {conductor origin}/v1/chat/completions inside the binary.
 # Terms acceptance is separate from host install --yes.
 # -License accept passes --license accept through.
 # HYPERMESH_LICENSE is inherited and, when set, also passed as --license.
@@ -21,7 +21,9 @@ param(
 
     [string] $ApiBase,
 
-    [string] $ChatBase,
+    [string] $ConductorBase,
+
+    [string] $Class,
 
     [string] $License
 )
@@ -65,9 +67,9 @@ if ($ApiBase) {
     $argList.Add('--api-base')
     $argList.Add($ApiBase)
 }
-if ($ChatBase) {
-    $argList.Add('--chat-base')
-    $argList.Add($ChatBase)
+if ($ConductorBase) {
+    $argList.Add('--conductor-base')
+    $argList.Add($ConductorBase)
 }
 $argList.Add('prompt')
 $argList.Add('--script')
@@ -82,6 +84,10 @@ if ($Model) {
 if ($System) {
     $argList.Add('--system')
     $argList.Add($System)
+}
+if ($Class) {
+    $argList.Add('--class')
+    $argList.Add($Class)
 }
 if ($Prompt) {
     foreach ($part in $Prompt) {

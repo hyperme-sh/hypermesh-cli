@@ -66,13 +66,14 @@ func newAuthWhoamiCmd(r *run) *cobra.Command {
 				}
 			}
 			out := map[string]any{
-				"api_base":       r.cfg.APIBase,
-				"chat_base":      r.cfg.ChatBase,
-				"tenant_id":      r.cfg.TenantID,
-				"renter_user_id": r.cfg.RenterUserID,
-				"api_key_set":    keyOK,
-				"api_key":        api.MaskKey(r.cfg.APIKey),
-				"config_dir":     r.cfg.Dir,
+				"api_base":        r.cfg.APIBase,
+				"conductor_base":  r.cfg.ConductorBase,
+				"conductor_class": r.cfg.ConductorClass,
+				"tenant_id":       r.cfg.TenantID,
+				"renter_user_id":  r.cfg.RenterUserID,
+				"api_key_set":     keyOK,
+				"api_key":         api.MaskKey(r.cfg.APIKey),
+				"config_dir":      r.cfg.Dir,
 			}
 			if keyErr != "" {
 				out["api_key_error"] = keyErr
@@ -81,7 +82,10 @@ func newAuthWhoamiCmd(r *run) *cobra.Command {
 				return r.printJSON(out)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "api_base\t%s\n", r.cfg.APIBase)
-			fmt.Fprintf(cmd.OutOrStdout(), "chat_base\t%s\n", r.cfg.ChatBase)
+			fmt.Fprintf(cmd.OutOrStdout(), "conductor_base\t%s\n", r.cfg.ConductorBase)
+			if r.cfg.ConductorClass != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "conductor_class\t%s\n", r.cfg.ConductorClass)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "tenant_id\t%s\n", r.cfg.TenantID)
 			fmt.Fprintf(cmd.OutOrStdout(), "renter_user_id\t%s\n", r.cfg.RenterUserID)
 			if keyOK {
