@@ -2044,10 +2044,12 @@ var secretLine = regexp.MustCompile(`(?i)(api[_-]?key|token|secret|password|auth
 func redactDiff(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
-		if !secretLine.MatchString(line) {
+		if strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") {
 			continue
 		}
-		lines[i] = redactValues(line)
+		if len(line) > 0 {
+			lines[i] = line[:1] + "[configuration content redacted]"
+		}
 	}
 	return strings.Join(lines, "\n")
 }

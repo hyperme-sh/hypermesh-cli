@@ -57,7 +57,7 @@ Authenticated requests send:
 | `X-Api-Key` | org API key (`prefix.secret` from api-keys-service) |
 | `X-Tenant-ID` | tenant id |
 
-`api.test.hyperme.sh` checks that pair and exchanges the key before the request reaches hypermesh-plane. Catalog, hosts, and leases use those headers. Chat goes to Conductor on `http://127.0.0.1:8787` with `Authorization: Bearer` plus the lease id in the JSON body. Conductor does not forward `X-Api-Key` or the lease headers. `hm_dev_`, `hm_rtr_`, `hm_gw_`, and `hm_site_` are rejected before any request is sent.
+`api.test.hyperme.sh` checks that pair and exchanges the key before the request reaches hypermesh-plane. Catalog, hosts, and leases use those headers. Chat goes to Conductor over its protected local socket with `Authorization: Bearer` plus the lease id in the JSON body. Conductor does not forward `X-Api-Key` or the lease headers. `hm_dev_`, `hm_rtr_`, `hm_gw_`, and `hm_site_` are rejected before any request is sent.
 
 Lease create on the plane accepts the exchanged key when its purpose is `service`. Chat accepts a renter key whose fingerprint was published for that tenant, plus a paid lease. api-keys-service publishes that renter fingerprint at mint for every key purpose.
 
@@ -108,7 +108,7 @@ With `--script`, stdout is the assistant text and failures exit `1`. Use `--json
 
 Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CONDUCTOR_BASE=http://127.0.0.1:8787`.
 
-The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-plane. Chat is Conductor on loopback. Conductor is not in `product_routes.json` and only binds a loopback port (`127.0.0.1:8787`). The gateway at `https://chat.test.hyperme.sh` is a destination an operator can put in Conductor's tier config. This CLI does not call it.
+The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-plane. Chat uses Conductor's protected Unix socket on Linux. Start it with `conductor serve --socket --config endpoints.json`. Both processes use `$XDG_CACHE_HOME/hypermesh/conductor/run/conductor.sock` (or `~/.cache/hypermesh/conductor/run/conductor.sock`); `HYPERMESH_CONDUCTOR_SOCKET` overrides that path. The directory must be owned by the current user with mode 0700, and the socket has mode 0600. The CLI verifies the connected peer's OS user before sending a request. It never falls back to the fixed TCP port. Explicit remote origins must use verified HTTPS; redirects are not followed. Other platforms currently require HTTPS. Conductor is not in `product_routes.json`. The gateway at `https://chat.test.hyperme.sh` is a destination an operator can put in Conductor's tier config. This CLI does not call it.
 
 | Command | Method | Path |
 |---|---|---|
@@ -233,3 +233,7 @@ hypermesh route disable --all
 [Hypermesh for VS Code](https://github.com/hyperme-sh/hypermesh-vscode) contributes **Hypermesh: smoke** (`hypermesh.smoke`). Its window setting `hypermesh.apiBase` defaults to the gateway origin and the command posts `{apiBase}/v1/chat/completions`. `hypermesh route enable hypermesh-vscode` sets `hypermesh.apiBase` to the Conductor origin. The renter key stays in VS Code SecretStorage (`hypermesh.key`). The extension does not send a job class, so Conductor needs `default_class` for that smoke command. The extension is not a substitute for `hypermesh checkout`.
 
 Contributor notes (same repo): [DESIGN.md](DESIGN.md).
+
+Route change previews show paths and structural added/removed lines, with all config content redacted. Credential field names are not assumed to be exhaustive.
+
+Local transport identity and Hypermesh login are separate. Conductor currently receives the renter credential on each request; it does not acquire or refresh a JWT itself. Visor's managed child inherits a listener reserved by the parent. A future shared session handoff must validate/refresh credentials through the owning authentication service and request device-code reauthentication when refresh is unavailable; opening a private socket does not establish that session.

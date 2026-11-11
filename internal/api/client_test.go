@@ -64,7 +64,7 @@ func TestCreateLeaseHTTP(t *testing.T) {
 func TestChatCompletionsHTTP(t *testing.T) {
 	t.Parallel()
 	var sawStub bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == PathRenterChatStub {
 			sawStub = true
 			w.WriteHeader(http.StatusConflict)
@@ -101,6 +101,7 @@ func TestChatCompletionsHTTP(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(DefaultAPIBase, srv.URL, "org_key", "ten")
+	c.HTTP = srv.Client()
 	c.ConductorClass = "code"
 	c.ConductorToken = "proxy-tok"
 	raw, err := c.ChatCompletions("lease_1", ChatRequest{
@@ -201,12 +202,13 @@ func TestGetCatalogPublic(t *testing.T) {
 func TestChatErrorDoesNotEchoPrompt(t *testing.T) {
 	t.Parallel()
 	secret := "UNIQUE_PROMPT_BODY_SHOULD_NOT_LEAK"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
 		_, _ = w.Write([]byte(`{"error":{"message":"lease not active"}}`))
 	}))
 	defer srv.Close()
 	c := NewClient(DefaultAPIBase, srv.URL, "org_key", "ten")
+	c.HTTP = srv.Client()
 	_, err := c.ChatCompletions("lease_1", ChatRequest{
 		Model:    DefaultCatalogID,
 		Messages: []ChatMessage{{Role: "user", Content: secret}},

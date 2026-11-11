@@ -160,7 +160,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dry.Action != "dry-run" || !strings.Contains(dry.Changes[0].Diff, "http://127.0.0.1:8787/v1") {
+	if dry.Action != "dry-run" || !strings.Contains(dry.Changes[0].Diff, "configuration content redacted") {
 		t.Fatalf("dry-run %+v", dry)
 	}
 	if _, err := os.Stat(filepath.Join(configDir, "route-backups")); !os.IsNotExist(err) {
@@ -671,5 +671,14 @@ func TestChangedShellTargetRestoresEveryPath(t *testing.T) {
 	}
 	if readFile(bash) != original || readFile(profile) != next {
 		t.Fatal("earlier config not restored")
+	}
+}
+
+func TestDiffRedactsUnknownCredentialFields(t *testing.T) {
+	for _, field := range []string{"GITHUB_PAT", "private_key", "DATABASE_URL", "custom"} {
+		input := `{\"` + field + `\":\"sensitive-value\"}`
+		if strings.Contains(unified("config", input, input+"\n"), "sensitive-value") {
+			t.Fatal("unrecognized secret leaked")
+		}
 	}
 }

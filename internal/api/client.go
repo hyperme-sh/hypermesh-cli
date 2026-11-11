@@ -2,9 +2,12 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/hyperme-sh/hypermesh-cli/internal/localtransport"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +29,8 @@ type Client struct {
 	ConductorSuggest string
 	// ConductorToken is X-Conductor-Token. It is read from the environment
 	// and is not stored in config.toml.
-	ConductorToken string
+	ConductorToken  string
+	ConductorSocket string
 }
 
 func NewClient(apiBase, conductorBase, apiKey, tenantID string) *Client {
@@ -239,6 +243,23 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	chatClient := *c.HTTP
+	chatClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	if req.URL.Scheme != "https" {
+		if c.ConductorBase != DefaultConductorBase && c.ConductorSocket == "" {
+			return nil, fmt.Errorf("Conductor chat requires a protected local socket or verified HTTPS")
+		}
+		path := c.ConductorSocket
+		if path == "" {
+			path, err = localtransport.DefaultPath()
+			if err != nil {
+				return nil, err
+			}
+		}
+		transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return localtransport.DialContext(ctx, path) }}
+		defer transport.CloseIdleConnections()
+		chatClient.Transport = transport
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	// Conductor openai passthrough reads Authorization: Bearer and forwards
@@ -266,7 +287,7 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 	if token := strings.TrimSpace(c.ConductorToken); token != "" {
 		req.Header.Set(HeaderConductorToken, token)
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := chatClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

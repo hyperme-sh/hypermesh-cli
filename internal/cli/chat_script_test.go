@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -217,7 +218,7 @@ type scriptResult struct {
 
 func scriptRouter(t *testing.T, status int, body, wantPrompt string) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == api.PathRenterChatStub {
 			t.Errorf("called control-plane chat stub")
 			w.WriteHeader(http.StatusConflict)
@@ -237,6 +238,11 @@ func scriptRouter(t *testing.T, status int, body, wantPrompt string) *httptest.S
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
+	certFile := filepath.Join(t.TempDir(), "fixture-ca.pem")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", certFile)
 	return srv
 }
 
