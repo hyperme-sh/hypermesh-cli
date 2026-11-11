@@ -246,7 +246,11 @@ func (c *Client) ChatCompletions(leaseID string, reqBody ChatRequest) (json.RawM
 	chatClient := *c.HTTP
 	chatClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	if req.URL.Scheme != "https" {
-		if c.ConductorBase != DefaultConductorBase && c.ConductorSocket == "" {
+		origin, originErr := ConductorOrigin(c.ConductorBase)
+		if originErr != nil {
+			return nil, originErr
+		}
+		if origin != DefaultConductorBase && c.ConductorSocket == "" {
 			return nil, fmt.Errorf("Conductor chat requires a protected local socket or verified HTTPS")
 		}
 		path := c.ConductorSocket

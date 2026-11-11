@@ -26,7 +26,7 @@ func TestChatUsesProtectedSocket(t *testing.T) {
 	srv.Listener = ln
 	srv.Start()
 	defer srv.Close()
-	c := NewClient(DefaultAPIBase, DefaultConductorBase, "org_key", "tenant")
+	c := NewClient(DefaultAPIBase, DefaultConductorBase+"/v1", "org_key", "tenant")
 	c.ConductorSocket = path
 	if _, err := c.ChatCompletions("lease", ChatRequest{Messages: []ChatMessage{{Role: "user", Content: "hello"}}}); err != nil {
 		t.Fatal(err)
