@@ -1,6 +1,6 @@
 # hypermesh-cli
 
-Thin **Hypermesh** CLI for [Hyperme.sh](https://hyperme.sh): browse the catalog, create a lease, chat on the router, and manage local MCP config for the [desktop visor](https://github.com/hyperme-sh/hypermesh-visor).
+Thin **Hypermesh** CLI for [Hyperme.sh](https://hyperme.sh): browse the catalog, create a lease, send chat through [Conductor](https://github.com/hyperme-sh/hypermesh-conductor), and manage local MCP config for the [desktop visor](https://github.com/hyperme-sh/hypermesh-visor).
 
 Binaries: `hypermesh` and `hm`.
 
@@ -57,7 +57,7 @@ Authenticated requests send:
 | `X-Api-Key` | org API key (`prefix.secret` from api-keys-service) |
 | `X-Tenant-ID` | tenant id |
 
-`api.test.hyperme.sh` checks that pair and exchanges the key before the request reaches hypermesh-plane. Chat on `chat.test.hyperme.sh` reads the same headers plus the lease id. `hm_dev_`, `hm_rtr_`, `hm_gw_`, and `hm_site_` are rejected before any request is sent.
+`api.test.hyperme.sh` checks that pair and exchanges the key before the request reaches hypermesh-plane. Catalog, hosts, and leases use those headers. Chat goes to Conductor over its protected local socket with `Authorization: Bearer` plus the lease id in the JSON body. Conductor does not forward `X-Api-Key` or the lease headers. `hm_dev_`, `hm_rtr_`, `hm_gw_`, and `hm_site_` are rejected before any request is sent.
 
 Lease create on the plane accepts the exchanged key when its purpose is `service`. Chat accepts a renter key whose fingerprint was published for that tenant, plus a paid lease. api-keys-service publishes that renter fingerprint at mint for every key purpose.
 
@@ -65,7 +65,7 @@ Config directory: `~/.config/hypermesh` (or `HYPERMESH_CONFIG_DIR`).
 
 | File | Purpose |
 |---|---|
-| `config.toml` | API / chat bases and preferences |
+| `config.toml` | API base, conductor origin, and preferences |
 | `credentials` | API key (mode `0600`) |
 | `mcp.json` | MCP servers |
 | `mcp-profiles.json` | named MCP profiles |
@@ -90,10 +90,10 @@ hypermesh checkout \
 hypermesh lease list
 hypermesh lease show "$LEASE_ID"
 
-hypermesh prompt --script --lease-id "$LEASE_ID" "hello"
-hypermesh chat --script --lease-id "$LEASE_ID" --message "hello"
+hypermesh prompt --script --class code --lease-id "$LEASE_ID" "hello"
+hypermesh chat --script --class code --lease-id "$LEASE_ID" --message "hello"
 
-text=$(hypermesh prompt --script --lease-id "$LEASE_ID" "hello")
+text=$(hypermesh prompt --script --class code --lease-id "$LEASE_ID" "hello")
 HYPERMESH_LICENSE=accept ./scripts/hypermesh-prompt.ps1 -LeaseId "$LEASE_ID" "hello"
 ./scripts/hypermesh-prompt.ps1 -License accept -LeaseId "$LEASE_ID" "hello"
 
@@ -106,9 +106,9 @@ With `--script`, stdout is the assistant text and failures exit `1`. Use `--json
 
 ## API map
 
-Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CHAT_BASE=https://chat.test.hyperme.sh`.
+Defaults: `HYPERMESH_API_BASE=https://api.test.hyperme.sh`, `HYPERMESH_CONDUCTOR_BASE=http://127.0.0.1:8787`.
 
-The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-plane. Chat is hypermesh-gateway on its own host.
+The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-plane. Chat uses Conductor's protected Unix socket on Linux. Start it with `conductor serve --socket --config endpoints.json`. Both processes use `$XDG_CACHE_HOME/hypermesh/conductor/run/conductor.sock` (or `~/.cache/hypermesh/conductor/run/conductor.sock`); `HYPERMESH_CONDUCTOR_SOCKET` overrides that path. The directory must be owned by the current user with mode 0700, and the socket has mode 0600. The CLI verifies the connected peer's OS user before sending a request. It never falls back to the fixed TCP port. Explicit remote origins must use verified HTTPS; redirects are not followed. Other platforms currently require HTTPS. Conductor is not in `product_routes.json`. The gateway at `https://chat.test.hyperme.sh` is a destination an operator can put in Conductor's tier config. This CLI does not call it.
 
 | Command | Method | Path |
 |---|---|---|
@@ -119,7 +119,7 @@ The API host is controlplane-edge. It forwards `/api/v1/hypermesh` to hypermesh-
 | `lease list` | `GET` | `/api/v1/hypermesh/leases` |
 | `lease show` | `GET` | `/api/v1/hypermesh/leases/{id}` |
 | `lease complete` | `POST` | `/api/v1/hypermesh/leases/{id}/complete` |
-| `chat` / `prompt` / `completions create` | `POST` | `{chat base}/v1/chat/completions` |
+| `chat` / `prompt` / `completions create` | `POST` | `{conductor origin}/v1/chat/completions` |
 
 `catalog` and `classes` are public. The rest need the API key and tenant id.
 
@@ -146,12 +146,17 @@ Lease status moves `offered` → `paid` → `starting` → `active`, then `ended
 
 ### Chat
 
-`POST {HYPERMESH_CHAT_BASE}/v1/chat/completions` with OpenAI-shaped `model` + `messages`, plus:
+`POST {HYPERMESH_CONDUCTOR_BASE}/v1/chat/completions` with OpenAI-shaped `model` + `messages`, plus:
 
-- `lease_id` in the JSON body
-- `X-Hypermesh-Lease-Id` and `X-Lease-Id` headers
+- `lease_id` in the JSON body (Conductor keeps it when the destination speaks the same protocol)
+- `Authorization: Bearer` set to the renter key
+- `X-Conductor-Class` when `--class` or `HYPERMESH_CONDUCTOR_CLASS` is set
+- `X-Conductor-Task` set to the lease id
+- `X-Conductor-Token` when `CONDUCTOR_PROXY_TOKEN` is set in the environment
 
-Prompt bodies are not logged.
+Conductor chooses the tier and replaces `model`. With no class on the request and no `default_class` in the conductor config, Conductor returns HTTP 400. `conductor run` is a local conductor command, not an HTTP route, so this CLI does not call it. Prompt bodies are not logged.
+
+`hypermesh route detect` lists other AI tools. `route enable` and `route disable` are opt-in and restore from a backup. See [Redirect other tools](#redirect-other-tools).
 
 ## Local MCP
 
@@ -188,10 +193,11 @@ Project import merges `.hypermesh/mcp.json` or `.cursor/mcp.json` from a path (o
 | Env | Default |
 |---|---|
 | `HYPERMESH_API_BASE` | `https://api.test.hyperme.sh` |
-| `HYPERMESH_CHAT_BASE` | `https://chat.test.hyperme.sh` |
+| `HYPERMESH_CONDUCTOR_BASE` | `http://127.0.0.1:8787` |
+| `HYPERMESH_CONDUCTOR_CLASS` | unset; Conductor then uses its own `default_class` or refuses |
 | `HYPERMESH_LICENSE` | unset; `accept` records the Hypermesh Terms |
 
-Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `HYPERMESH_LEASE_ID`, `HYPERMESH_CONFIG_DIR`, `HYPERMESH_VISOR_URL`.
+Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `HYPERMESH_LEASE_ID`, `HYPERMESH_CONDUCTOR_SUGGEST`, `HYPERMESH_CONFIG_DIR`, `HYPERMESH_VISOR_URL`. `CONDUCTOR_PROXY_TOKEN` is forwarded as `X-Conductor-Token` and is not stored.
 
 `HYPERMESH_LICENSE=accept` is the same acceptance as `--license accept`. Pass either one through scripts that exec `hypermesh` or `hm`.
 
@@ -205,7 +211,35 @@ Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `H
 | `catalog` / `classes` | public catalog |
 | `hosts` | renter hosts |
 | `checkout` / `lease …` | leases |
-| `chat` / `prompt` / `completions create` | router chat |
+| `chat` / `prompt` / `completions create` | Conductor chat |
+| `route detect` / `enable` / `disable` / `status` | local AI tool endpoints |
 | `mcp …` | local MCP config |
 
+## Redirect other tools
+
+```bash
+hypermesh route detect
+hypermesh route detect --json
+hypermesh route enable continue --dry-run
+hypermesh route enable continue
+hypermesh route enable --all
+hypermesh route status
+hypermesh route disable continue
+hypermesh route disable --all
+```
+
+`detect` is read-only. It reports whether each tool has a custom OpenAI-compatible or Anthropic-compatible base URL. `enable` writes that config, keeps a backup, and does not paste the renter key. `disable` restores the backup. Tools without a documented base URL (Gemini CLI, Cursor, Copilot BYOK, JetBrains AI, LM Studio, Ollama) are listed and not modified.
+
+[Hypermesh for VS Code](https://github.com/hyperme-sh/hypermesh-vscode) contributes **Hypermesh: smoke** (`hypermesh.smoke`). Its window setting `hypermesh.apiBase` defaults to the gateway origin and the command posts `{apiBase}/v1/chat/completions`. `hypermesh route enable hypermesh-vscode` sets `hypermesh.apiBase` to the Conductor origin. The renter key stays in VS Code SecretStorage (`hypermesh.key`). The extension does not send a job class, so Conductor needs `default_class` for that smoke command. The extension is not a substitute for `hypermesh checkout`.
+
 Contributor notes (same repo): [DESIGN.md](DESIGN.md).
+
+Route change previews show paths and structural added/removed lines, with all config content redacted. Credential field names are not assumed to be exhaustive.
+
+Local transport identity and Hypermesh login are separate. Conductor currently receives the renter credential on each request; it does not acquire or refresh a JWT itself. Visor's managed child inherits a listener reserved by the parent. A future shared session handoff must validate/refresh credentials through the owning authentication service and request device-code reauthentication when refresh is unavailable; opening a private socket does not establish that session.
+
+Third-party tool redirects require an HTTPS Conductor origin because those tools do not use the CLI's protected socket transport. Configure Conductor's existing TLS network mode with a certificate trusted by the tool, then use `hypermesh --conductor-base https://host:port route enable TOOL`. Plain HTTP route enable and dry-run return an error before writing config. Disable still restores existing backups regardless of transport.
+
+Cline and Roo are detected but are not automatically redirected: their provider configuration lives in extension global state, not VS Code user settings. Use their own provider UI. The CLI does not edit extension databases or claim that unused settings keys change the provider.
+
+Automatic redirects select Hypermesh credential references for Claude Code and Continue, replacing any previous provider credential selector. Aider and Zed are detected but automatic enable is refused because this editor cannot safely rebind their environment/.env or keychain credentials. Configure a distinct Hypermesh credential in those tools manually. Existing CLI backups can still be restored with `route disable`.

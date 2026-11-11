@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -150,7 +151,7 @@ func TestPowerShellWrapperHasNoSecondClient(t *testing.T) {
 			t.Fatalf("wrapper contains %q", bad)
 		}
 	}
-	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt", "--license", "HYPERMESH_LICENSE"} {
+	for _, need := range []string{"--script", "hypermesh", "LASTEXITCODE", "prompt", "--license", "HYPERMESH_LICENSE", "--conductor-base"} {
 		if !strings.Contains(src, need) {
 			t.Fatalf("wrapper missing %q", need)
 		}
@@ -169,7 +170,7 @@ func TestPowerShellWrapperStdoutAndExit(t *testing.T) {
 
 	success := runPwsh(t, pwsh, script, []string{
 		"-Binary", bin,
-		"-ChatBase", srv.URL,
+		"-ConductorBase", srv.URL,
 		"-LeaseID", "lease_1",
 		"hello",
 	}, map[string]string{
@@ -190,7 +191,7 @@ func TestPowerShellWrapperStdoutAndExit(t *testing.T) {
 	failSrv := scriptRouter(t, http.StatusBadGateway, `{"error":{"message":"router down"}}`, "hello")
 	failure := runPwsh(t, pwsh, script, []string{
 		"-Binary", bin,
-		"-ChatBase", failSrv.URL,
+		"-ConductorBase", failSrv.URL,
 		"-LeaseID", "lease_1",
 		"hello",
 	}, map[string]string{
@@ -217,7 +218,7 @@ type scriptResult struct {
 
 func scriptRouter(t *testing.T, status int, body, wantPrompt string) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == api.PathRenterChatStub {
 			t.Errorf("called control-plane chat stub")
 			w.WriteHeader(http.StatusConflict)
@@ -237,6 +238,11 @@ func scriptRouter(t *testing.T, status int, body, wantPrompt string) *httptest.S
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
+	certFile := filepath.Join(t.TempDir(), "fixture-ca.pem")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", certFile)
 	return srv
 }
 
@@ -244,7 +250,7 @@ func runHypermesh(t *testing.T, chatBase string, args ...string) scriptResult {
 	t.Helper()
 	full := make([]string, 0, len(args)+2)
 	if chatBase != "" {
-		full = append(full, "--chat-base", chatBase)
+		full = append(full, "--conductor-base", chatBase)
 	}
 	full = append(full, args...)
 	cmd := exec.Command(testBinary(t), full...)

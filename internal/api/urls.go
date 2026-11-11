@@ -8,12 +8,23 @@ import (
 )
 
 const (
-	DefaultAPIBase   = "https://api.test.hyperme.sh"
-	DefaultChatBase  = "https://chat.test.hyperme.sh"
+	DefaultAPIBase = "https://api.test.hyperme.sh"
+
+	// DefaultConductorBase is the loopback origin conductor serve binds.
+	// hypermesh-conductor internal/config/config.go DefaultListen is
+	// 127.0.0.1:8787, and examples/endpoints.json sets the same listen.
+	// ValidateListen refuses any non-loopback address. controlplane-edge
+	// src/controlplane_edge/product_routes.json has no conductor product
+	// and no conductor hostname.
+	DefaultConductorBase = "http://127.0.0.1:8787"
+
 	DefaultVisorBase = "http://127.0.0.1:9847"
 
 	// DefaultCatalogID seeds --catalog-id / --model when the flag is omitted.
 	// It is not a catalog inventory; list ids with `hypermesh catalog`.
+	// Conductor replaces this value with the tier model before the destination
+	// sees the body (internal/proxy/proxy.go forceModel, internal/translate
+	// setModelPreserve).
 	DefaultCatalogID = "llama-3.1-8b-q4"
 
 	// Control-plane paths. controlplane-edge forwards the /api/v1/hypermesh
@@ -24,10 +35,26 @@ const (
 	PathRenterHosts = "/api/v1/hypermesh/renter/hosts"
 	PathLeases      = "/api/v1/hypermesh/leases"
 
-	// Chat is the gateway openai router, on the chat host, outside the
-	// control-plane proxy. hypermesh-gateway routes.py openai_router
-	// POST /v1/chat/completions, included with no prefix in app.py.
-	PathChatCompletions = "/v1/chat/completions"
+	// Conductor HTTP surface. internal/proxy/proxy.go protocolOf.
+	// Same-protocol bodies are forwarded with the model replaced.
+	PathChatCompletions    = "/v1/chat/completions"
+	PathConductorResponses = "/v1/responses"
+	PathConductorMessages  = "/v1/messages"
+	PathConductorEmbeds    = "/v1/embeddings"
+	PathConductorModels    = "/v1/models"
+
+	// Headers conductor's proxy reads. internal/proxy/proxy.go identity,
+	// authorizeProxy, and clientCredential. X-Api-Key, X-Tenant-ID, and the
+	// lease headers are not forwarded.
+	HeaderConductorClass   = "X-Conductor-Class"
+	HeaderConductorSuggest = "X-Conductor-Suggest"
+	HeaderConductorTask    = "X-Conductor-Task"
+	HeaderConductorToken   = "X-Conductor-Token"
+
+	// EnvConductorProxyToken is the conductor process secret. The proxy
+	// compares X-Conductor-Token to it. This CLI forwards the variable when
+	// it is set and does not write it into config.toml.
+	EnvConductorProxyToken = "CONDUCTOR_PROXY_TOKEN"
 
 	// PathRenterChatStub is POST /api/v1/hypermesh/renter/chat/completions
 	// on hypermesh-plane. That handler always returns 409. This client
@@ -50,6 +77,8 @@ func JoinBase(base, p string) (string, error) {
 	if !strings.HasPrefix(u.Path, "/") {
 		u.Path = "/" + u.Path
 	}
+	u.RawQuery = ""
+	u.Fragment = ""
 	return u.String(), nil
 }
 
@@ -110,8 +139,42 @@ func VisorStreamURL(visorBase, sessionID string) (string, error) {
 	return JoinBase(visorBase, "/session/"+url.PathEscape(sessionID)+"/stream")
 }
 
-func ChatCompletionsURL(chatBase string) (string, error) {
-	u, err := JoinBase(chatBase, PathChatCompletions)
+// ConductorOrigin is the conductor listen origin. A trailing /v1 is removed
+// so callers can append /v1/chat/completions or /v1/messages once.
+func ConductorOrigin(conductorBase string) (string, error) {
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(conductorBase), "/"))
+	if err != nil {
+		return "", fmt.Errorf("parse conductor base URL: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return "", fmt.Errorf("conductor base URL must be http or https with a host and no userinfo")
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/")
+	u.Path = strings.TrimSuffix(u.Path, "/v1")
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String(), nil
+}
+
+// OpenAIRoot is the API root OpenAI-compatible clients append
+// /chat/completions, /responses, or /embeddings to. Conductor serves those
+// under /v1 (internal/proxy/proxy.go protocolOf).
+func OpenAIRoot(conductorBase string) (string, error) {
+	origin, err := ConductorOrigin(conductorBase)
+	if err != nil {
+		return "", err
+	}
+	return origin + "/v1", nil
+}
+
+// ChatCompletionsURL is POST {conductor origin}/v1/chat/completions.
+func ChatCompletionsURL(conductorBase string) (string, error) {
+	origin, err := ConductorOrigin(conductorBase)
+	if err != nil {
+		return "", err
+	}
+	u, err := JoinBase(origin, PathChatCompletions)
 	if err != nil {
 		return "", err
 	}
