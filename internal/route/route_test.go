@@ -839,3 +839,55 @@ func TestSharedReplayUsesContinueLogicalJSONFormat(t *testing.T) {
 		t.Fatal("original not restored")
 	}
 }
+
+func TestContinueAnchoredEndpointRejectedWithoutWriting(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".continue", "config.yaml")
+	original := "models:\n  - name: Hypermesh Conductor\n    provider: openai\n    apiBase: &shared https://old.example/v1\n  - name: Other\n    provider: openai\n    apiBase: *shared\n"
+	// Use the same model title as the route editor.
+	original = strings.Replace(original, "Hypermesh Conductor", continueTitle, 1)
+	mustWrite(t, path, original)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
+	if _, err := Enable(opts, "continue", false); err == nil || !strings.Contains(err.Error(), "anchored") {
+		t.Fatalf("expected anchor rejection, got %v", err)
+	}
+	if readFile(path) != original {
+		t.Fatal("rejected edit changed YAML")
+	}
+}
+
+func TestSymlinkedHomeRouteRoundTrip(t *testing.T) {
+	realHome := t.TempDir()
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(realHome, home); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	path := filepath.Join(home, ".aider.conf.yml")
+	original := "openai-api-base: https://original/v1\n"
+	mustWrite(t, path, original)
+	opts := Options{Home: home, ConfigDir: filepath.Join(home, ".config", "hypermesh"), ConductorBase: "https://localhost:8787", GOOS: "linux"}
+	if _, err := Enable(opts, "aider", false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readFile(path), "localhost:8787") {
+		t.Fatal("route was not enabled")
+	}
+	if _, err := Disable(opts, "aider", false); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(path) != original {
+		t.Fatal("original config not restored")
+	}
+	if err := underHome(home, filepath.Join(home, "missing", "config")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(realHome, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	if err := underHome(home, filepath.Join(home, "outside", "config")); err == nil {
+		t.Fatal("external symlink allowed")
+	}
+	if err := underHome(home, filepath.Join(realHome, ".aider.conf.yml")); err == nil {
+		t.Fatal("lexical containment check lost")
+	}
+}

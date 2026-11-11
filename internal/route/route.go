@@ -1138,6 +1138,28 @@ func editContinueYAML(content, openai string) ([]byte, error) {
 		model = &yaml.Node{Kind: yaml.MappingNode}
 		models.Content = append(models.Content, model)
 	}
+	// Replacing an anchor definition would leave aliases elsewhere dangling or
+	// silently redirect unrelated models. Refuse before any file is written.
+	if models.Anchor != "" || model.Anchor != "" {
+		return nil, fmt.Errorf("cannot safely redirect anchored Continue models")
+	}
+	var containsAnchor func(*yaml.Node) bool
+	containsAnchor = func(node *yaml.Node) bool {
+		if node.Anchor != "" {
+			return true
+		}
+		for _, child := range node.Content {
+			if containsAnchor(child) {
+				return true
+			}
+		}
+		return false
+	}
+	for i := 0; i < len(model.Content); i += 2 {
+		if (model.Content[i].Value == "provider" || model.Content[i].Value == "apiBase") && containsAnchor(model.Content[i+1]) {
+			return nil, fmt.Errorf("cannot safely replace anchored Continue %s", model.Content[i].Value)
+		}
+	}
 	set := func(key, value string, preserve bool) {
 		for i := 0; i < len(model.Content); i += 2 {
 			if model.Content[i].Value == key {
@@ -1696,7 +1718,11 @@ func underHome(home, path string) error {
 	if err != nil {
 		return err
 	}
-	rel, err = filepath.Rel(home, resolved)
+	resolvedHome, err := canonicalPath(home)
+	if err != nil {
+		return err
+	}
+	rel, err = filepath.Rel(resolvedHome, resolved)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing to edit %s outside the home directory", path)
 	}
