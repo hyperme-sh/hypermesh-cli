@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/hyperme-sh/hypermesh-cli/internal/api"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -842,7 +843,7 @@ func editPath(t target, id, path string, content []byte) ([]byte, error) {
 		if strings.HasSuffix(path, ".json") {
 			return editContinueJSON(content, t.openai)
 		}
-		return []byte(editContinueYAML(string(content), t.openai)), nil
+		return editContinueYAML(string(content), t.openai)
 	case "cline":
 		return editJSONMap(content, func(root map[string]any) {
 			root["cline.apiProvider"] = "openai"
@@ -1087,43 +1088,71 @@ func editContinueJSON(content []byte, openai string) ([]byte, error) {
 	return marshalPretty(root)
 }
 
-func editContinueYAML(content, openai string) string {
-	text := strings.ReplaceAll(content, "\r\n", "\n")
-	if strings.Contains(text, "name: "+continueTitle) || strings.Contains(text, "title: "+continueTitle) {
-		return replaceNearbyAPIBase(text, openai)
+func editContinueYAML(content, openai string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return nil, err
 	}
-	itemForIndent := func(indent string) string {
-		return fmt.Sprintf("%s- name: %s\n%s  provider: openai\n%s  model: conductor\n%s  apiBase: %s\n%s  apiKey: ${{ secrets.%s }}\n", indent, continueTitle, indent, indent, indent, openai, indent, keyReference)
+	if len(doc.Content) == 0 {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
 	}
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "models:" {
-			indent := "  "
-			for _, following := range lines[i+1:] {
-				trimmed := strings.TrimSpace(following)
-				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-					continue
-				}
-				if strings.HasPrefix(trimmed, "- ") || trimmed == "-" {
-					indent = following[:len(following)-len(strings.TrimLeft(following, " \t"))]
-				}
-				break
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("Continue config must be a YAML mapping")
+	}
+	var models *yaml.Node
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == "models" {
+			if models != nil {
+				return nil, fmt.Errorf("duplicate models key")
 			}
-			item := itemForIndent(indent)
-			head := append([]string{}, lines[:i+1]...)
-			head = append(head, strings.Split(strings.TrimRight(item, "\n"), "\n")...)
-			head = append(head, lines[i+1:]...)
-			out := strings.Join(head, "\n")
-			if !strings.HasSuffix(out, "\n") {
-				out += "\n"
-			}
-			return out
+			models = root.Content[i+1]
 		}
 	}
-	if strings.TrimSpace(text) != "" && !strings.HasSuffix(text, "\n") {
-		text += "\n"
+	if models == nil {
+		models = &yaml.Node{Kind: yaml.SequenceNode}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "models"}, models)
 	}
-	return text + "models:\n" + itemForIndent("  ")
+	if models.Tag == "!!null" {
+		models.Kind = yaml.SequenceNode
+		models.Tag = "!!seq"
+		models.Value = ""
+	}
+	if models.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("Continue models must be a sequence")
+	}
+	var model *yaml.Node
+	for _, item := range models.Content {
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		for i := 0; i < len(item.Content); i += 2 {
+			if (item.Content[i].Value == "name" || item.Content[i].Value == "title") && item.Content[i+1].Value == continueTitle {
+				model = item
+			}
+		}
+	}
+	if model == nil {
+		model = &yaml.Node{Kind: yaml.MappingNode}
+		models.Content = append(models.Content, model)
+	}
+	set := func(key, value string, preserve bool) {
+		for i := 0; i < len(model.Content); i += 2 {
+			if model.Content[i].Value == key {
+				if !preserve {
+					model.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+				}
+				return
+			}
+		}
+		model.Content = append(model.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+	}
+	set("name", continueTitle, true)
+	set("provider", "openai", false)
+	set("model", "conductor", true)
+	set("apiBase", openai, false)
+	set("apiKey", "${{ secrets."+keyReference+" }}", true)
+	return yaml.Marshal(&doc)
 }
 
 func replaceNearbyAPIBase(content, openai string) string {
@@ -1870,6 +1899,14 @@ func snapMode(t target, path string) os.FileMode {
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {
+	// Keep dotfile symlinks intact by atomically replacing their resolved target.
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return err
+		}
+		path = resolved
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

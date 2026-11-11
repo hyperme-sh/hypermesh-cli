@@ -1,7 +1,6 @@
 package route
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hyperme-sh/hypermesh-cli/internal/api"
+	"gopkg.in/yaml.v3"
 )
 
 func TestMatrixCoversRequestedTools(t *testing.T) {
@@ -492,15 +492,62 @@ func TestCodexTableCommentsDoNotDuplicateProvider(t *testing.T) {
 	}
 }
 
-func TestContinueYAMLUsesExistingSequenceIndent(t *testing.T) {
-	for _, indent := range []string{"", "  ", "    "} {
-		t.Run(fmt.Sprintf("indent-%d", len(indent)), func(t *testing.T) {
-			old := indent + "- name: Other\n" + indent + "  provider: openai\n"
-			got := editContinueYAML("models:\n# keep comment\n"+old+"context: []\n", "http://new/v1")
-			if !strings.Contains(got, "models:\n"+indent+"- name: Hypermesh Conductor\n"+indent+"  provider: openai\n") || !strings.Contains(got, old+"context: []\n") {
-				t.Fatalf("mixed indentation: %s", got)
-			}
-		})
+func TestContinueYAMLLists(t *testing.T) {
+	for _, input := range []string{"models: [] # keep comment\n", "models: [{name: Other, provider: openai}]\n", "models: # keep comment\n- name: Other\n  provider: openai\n", "models:\n    - name: Other\n      provider: openai\n"} {
+		got, err := editContinueYAML(input, "http://new/v1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config struct {
+			Models []map[string]string `yaml:"models"`
+		}
+		if err := yaml.Unmarshal(got, &config); err != nil {
+			t.Fatalf("invalid YAML: %v\n%s", err, got)
+		}
+		want := 1
+		if strings.Contains(input, "Other") {
+			want = 2
+		}
+		if len(config.Models) != want || config.Models[want-1]["apiBase"] != "http://new/v1" {
+			t.Fatalf("lost models: %s", got)
+		}
+		again, err := editContinueYAML(string(got), "http://updated/v1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal(again, &config); err != nil || len(config.Models) != want {
+			t.Fatalf("duplicate model: %s", again)
+		}
+	}
+}
+
+func TestSymlinkedConfigRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "dotfiles", "aider.yml")
+	original := "openai-api-base: http://original/v1\n"
+	mustWrite(t, target, original)
+	link := filepath.Join(home, ".aider.conf.yml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	if _, err := Enable(opts, "aider", false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != target {
+		t.Fatal("symlink replaced")
+	}
+	if !strings.Contains(readFile(target), "localhost:8787") {
+		t.Fatal("target not updated")
+	}
+	if _, err := Disable(opts, "aider", false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != target {
+		t.Fatal("symlink not preserved")
+	}
+	if readFile(target) != original {
+		t.Fatal("original target not restored")
 	}
 }
 
