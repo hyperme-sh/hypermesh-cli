@@ -920,15 +920,15 @@ func editPath(t target, id, path string, content []byte) ([]byte, error) {
 		return []byte(editShell(string(content), id, []string{
 			"OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_API_KEY",
 		}, []string{
-			fmt.Sprintf("export OPENAI_BASE_URL=%q", t.openai),
-			fmt.Sprintf("export OPENAI_API_BASE=%q", t.openai),
+			"export OPENAI_BASE_URL=" + shellQuote(t.openai),
+			"export OPENAI_API_BASE=" + shellQuote(t.openai),
 			`export OPENAI_API_KEY="${HYPERMESH_API_KEY}"`,
 		})), nil
 	case "anthropic-env":
 		return []byte(editShell(string(content), id, []string{
 			"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS",
 		}, []string{
-			fmt.Sprintf("export ANTHROPIC_BASE_URL=%q", t.origin),
+			"export ANTHROPIC_BASE_URL=" + shellQuote(t.origin),
 			`export ANTHROPIC_API_KEY="${HYPERMESH_API_KEY}"`,
 			`export ANTHROPIC_AUTH_TOKEN=""`,
 			`export CLAUDE_CODE_OAUTH_TOKEN=""`,
@@ -1247,6 +1247,11 @@ func editJSONMap(content []byte, mutate func(map[string]any)) ([]byte, error) {
 	}
 	mutate(root)
 	return marshalPretty(root)
+}
+
+// shellQuote emits one literal POSIX shell word, including embedded apostrophes.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func editShell(content, id string, keys, exports []string) string {

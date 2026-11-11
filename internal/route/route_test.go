@@ -292,7 +292,7 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 		t.Fatal("codex gained a secret")
 	}
 	shellNow, _ := os.ReadFile(profile)
-	if strings.Contains(string(shellNow), "sk-already-there") || !strings.Contains(string(shellNow), `${HYPERMESH_API_KEY}`) || !strings.Contains(string(shellNow), `OPENAI_BASE_URL="https://127.0.0.1:8787/v1"`) {
+	if strings.Contains(string(shellNow), "sk-already-there") || !strings.Contains(string(shellNow), `${HYPERMESH_API_KEY}`) || !strings.Contains(string(shellNow), `OPENAI_BASE_URL='https://127.0.0.1:8787/v1'`) {
 		t.Fatalf("shell %s", shellNow)
 	}
 	found, err := Detect(opts)
@@ -937,6 +937,27 @@ func TestUnsafeCredentialToolsRefusedWithoutWrites(t *testing.T) {
 		}
 		if readFile(path) != entry.body {
 			t.Fatalf("%s changed config", entry.id)
+		}
+	}
+}
+
+func TestShellRouteURLsAreLiteral(t *testing.T) {
+	for _, id := range []string{"openai-env", "anthropic-env"} {
+		for _, endpoint := range []string{"https://host/$(printf INJECTED)", "https://host/`printf INJECTED`", "https://host/a'b;$HOME\nnext"} {
+			target := target{origin: endpoint, openai: endpoint}
+			body, err := editPath(target, id, ".profile", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := "OPENAI_BASE_URL"
+			if id == "anthropic-env" {
+				key = "ANTHROPIC_BASE_URL"
+			}
+			cmd := exec.Command("sh", "-c", string(body)+"\nprintf '%s' \"$"+key+"\"")
+			got, err := cmd.CombinedOutput()
+			if err != nil || string(got) != endpoint {
+				t.Fatalf("URL evaluated: %q, err=%v; want %q", got, err, endpoint)
+			}
 		}
 	}
 }
