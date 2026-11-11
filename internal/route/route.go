@@ -672,6 +672,7 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 	if len(paths) == 0 {
 		return Result{Tool: id, Action: "error"}, fmt.Errorf("%s has no config path", spec.Name)
 	}
+	logicalPaths := map[string]string{}
 	for i, path := range paths {
 		if err := underHome(t.Home, path); err != nil {
 			return Result{}, err
@@ -681,13 +682,14 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 			return Result{}, err
 		}
 		paths[i] = resolved
+		logicalPaths[resolved] = path
 	}
 	changes := make([]Change, 0, len(paths))
 	anyDiff := false
 	planned := map[string][]byte{}
 	for _, path := range paths {
 		current := readFile(path)
-		next, err := editPath(t, id, path, []byte(current))
+		next, err := editPath(t, id, logicalPaths[path], []byte(current))
 		if err != nil {
 			return Result{}, err
 		}
@@ -717,7 +719,7 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 			return Result{}, err
 		}
 	}
-	if err := setManaged(t, id, paths); err != nil {
+	if err := setManaged(t, id, paths, logicalPaths); err != nil {
 		return Result{}, err
 	}
 	return Result{Tool: id, Action: "enabled", Changes: changes}, nil
@@ -773,7 +775,11 @@ func disableTool(t target, spec Tool, dryRun bool) (Result, error) {
 				if targetErr != nil {
 					return Result{}, targetErr
 				}
-				next, err = editPath(otherTarget, other, path, next)
+				logicalPath := others[other].LogicalPaths[path]
+				if logicalPath == "" {
+					logicalPath = path
+				}
+				next, err = editPath(otherTarget, other, logicalPath, next)
 				if err != nil {
 					return Result{}, err
 				}
@@ -1735,9 +1741,10 @@ func fileIdentity(path string) string {
 }
 
 type managedState struct {
-	ID            string   `json:"id"`
-	Paths         []string `json:"paths"`
-	ConductorBase string   `json:"conductor_base,omitempty"`
+	LogicalPaths  map[string]string `json:"logical_paths,omitempty"`
+	ID            string            `json:"id"`
+	Paths         []string          `json:"paths"`
+	ConductorBase string            `json:"conductor_base,omitempty"`
 }
 
 type fileSnap struct {
@@ -1816,12 +1823,17 @@ func readManaged(t target, id string) (managedState, bool, error) {
 	return state, true, nil
 }
 
-func setManaged(t target, id string, paths []string) error {
+func setManaged(t target, id string, paths []string, logicalPaths map[string]string) error {
 	old, ok, err := readManaged(t, id)
 	if err != nil {
 		return err
 	}
 	if ok {
+		for path, logical := range old.LogicalPaths {
+			if logicalPaths[path] == "" {
+				logicalPaths[path] = logical
+			}
+		}
 		seen := map[string]bool{}
 		for _, path := range paths {
 			seen[path] = true
@@ -1838,7 +1850,7 @@ func setManaged(t target, id string, paths []string) error {
 		return err
 	}
 	_ = os.Chmod(backupRoot(t), 0o700)
-	raw, err := marshalPretty(managedState{ID: id, Paths: paths, ConductorBase: t.ConductorBase})
+	raw, err := marshalPretty(managedState{ID: id, Paths: paths, LogicalPaths: logicalPaths, ConductorBase: t.ConductorBase})
 	if err != nil {
 		return err
 	}

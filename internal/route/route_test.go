@@ -1,6 +1,7 @@
 package route
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -770,5 +771,71 @@ func TestOpenCodeSelectedModelIsDeclared(t *testing.T) {
 	}
 	if jsonString(string(got), "model") != "hypermesh/conductor" || jsonString(string(got), "provider", "hypermesh", "models", "conductor", "name") == "" {
 		t.Fatalf("unresolved model: %s", got)
+	}
+}
+
+func TestContinueSymlinkRetainsLogicalFormat(t *testing.T) {
+	for _, item := range []struct{ logical, target, body string }{{"config.json", "dotfile", `{"models":[]}`}, {"config.yaml", "dotfile.json", "models: []\n"}} {
+		home := t.TempDir()
+		target := filepath.Join(home, item.target)
+		link := filepath.Join(home, ".continue", item.logical)
+		mustWrite(t, target, item.body)
+		if err := os.MkdirAll(filepath.Dir(link), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://conductor.example", GOOS: "linux"}
+		if _, err := Enable(opts, "continue", false); err != nil {
+			t.Fatal(err)
+		}
+		raw := readFile(target)
+		if item.logical == "config.json" && !json.Valid([]byte(raw)) {
+			t.Fatalf("not JSON: %s", raw)
+		}
+		if continueEndpoint(raw, item.logical == "config.json") != "https://conductor.example/v1" {
+			t.Fatalf("bad endpoint: %s", raw)
+		}
+		if _, err := Disable(opts, "continue", false); err != nil {
+			t.Fatal(err)
+		}
+		if readFile(target) != item.body {
+			t.Fatal("original not restored")
+		}
+	}
+}
+func TestSharedReplayUsesContinueLogicalJSONFormat(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "dotfile")
+	original := `{"models":[]}`
+	mustWrite(t, target, original)
+	for _, rel := range []string{".continue/config.json", ".claude/settings.json"} {
+		link := filepath.Join(home, rel)
+		if err := os.MkdirAll(filepath.Dir(link), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://conductor.example", GOOS: "linux"}
+	for _, id := range []string{"continue", "claude-code"} {
+		if _, err := Enable(opts, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Disable(opts, "claude-code", false); err != nil {
+		t.Fatal(err)
+	}
+	raw := readFile(target)
+	if !json.Valid([]byte(raw)) || continueEndpoint(raw, true) != "https://conductor.example/v1" {
+		t.Fatalf("bad replay: %s", raw)
+	}
+	if _, err := Disable(opts, "continue", false); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(target) != original {
+		t.Fatal("original not restored")
 	}
 }
