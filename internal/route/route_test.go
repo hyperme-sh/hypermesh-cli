@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hyperme-sh/hypermesh-cli/internal/api"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -83,7 +82,7 @@ func TestDetectParsesFixtureHome(t *testing.T) {
 
 	opts := Options{
 		Home: home, ConfigDir: filepath.Join(home, ".config", "hypermesh"),
-		ConductorBase: api.DefaultConductorBase, Path: pathDir, GOOS: "linux",
+		ConductorBase: "https://127.0.0.1:8787", Path: pathDir, GOOS: "linux",
 		Environ: []string{"OLLAMA_HOST=127.0.0.1:11434"},
 	}
 	found, err := Detect(opts)
@@ -153,7 +152,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := Options{
-		Home: home, ConfigDir: configDir, ConductorBase: api.DefaultConductorBase, GOOS: "linux",
+		Home: home, ConfigDir: configDir, ConductorBase: "https://127.0.0.1:8787", GOOS: "linux",
 		Environ: []string{"HYPERMESH_API_KEY=sk-live-secret-value"},
 	}
 
@@ -179,7 +178,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(enabled), "openai-api-base: http://127.0.0.1:8787/v1") || !strings.Contains(string(enabled), "model: demo") {
+	if !strings.Contains(string(enabled), "openai-api-base: https://127.0.0.1:8787/v1") || !strings.Contains(string(enabled), "model: demo") {
 		t.Fatalf("enabled %s", enabled)
 	}
 	if strings.Contains(string(enabled), "sk-live-secret-value") {
@@ -204,7 +203,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(claude), "http://127.0.0.1:8787") || !strings.Contains(string(claude), "printenv HYPERMESH_API_KEY") {
+	if !strings.Contains(string(claude), "https://127.0.0.1:8787") || !strings.Contains(string(claude), "printenv HYPERMESH_API_KEY") {
 		t.Fatalf("claude %s", claude)
 	}
 	if strings.Contains(string(claude), "sk-live-secret-value") {
@@ -263,7 +262,7 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 	profile := filepath.Join(home, ".profile")
 	profileOriginal := []byte("# profile\nexport OPENAI_BASE_URL=https://api.openai.com/v1\nexport OPENAI_API_KEY=sk-already-there\n")
 	mustWrite(t, profile, string(profileOriginal))
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: api.DefaultConductorBase, GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://127.0.0.1:8787", GOOS: "linux"}
 
 	dry, err := Enable(opts, "openai-env", true)
 	if err != nil {
@@ -284,7 +283,7 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := codexConfig["model_providers"].(map[string]any)["hypermesh"].(map[string]any)
-	if provider["base_url"] != "http://127.0.0.1:8787/v1" || provider["env_key"] != "HYPERMESH_API_KEY" || provider["wire_api"] != "responses" {
+	if provider["base_url"] != "https://127.0.0.1:8787/v1" || provider["env_key"] != "HYPERMESH_API_KEY" || provider["wire_api"] != "responses" {
 		t.Fatalf("codex %s", codexNow)
 	}
 
@@ -292,7 +291,7 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 		t.Fatal("codex gained a secret")
 	}
 	shellNow, _ := os.ReadFile(profile)
-	if strings.Contains(string(shellNow), "sk-already-there") || !strings.Contains(string(shellNow), `${HYPERMESH_API_KEY}`) || !strings.Contains(string(shellNow), `OPENAI_BASE_URL="http://127.0.0.1:8787/v1"`) {
+	if strings.Contains(string(shellNow), "sk-already-there") || !strings.Contains(string(shellNow), `${HYPERMESH_API_KEY}`) || !strings.Contains(string(shellNow), `OPENAI_BASE_URL="https://127.0.0.1:8787/v1"`) {
 		t.Fatalf("shell %s", shellNow)
 	}
 	found, err := Detect(opts)
@@ -327,7 +326,7 @@ func TestSharedVSCodeSettingsRoundTrip(t *testing.T) {
 	original := []byte("{\n  // keep me\n  \"editor.fontSize\": 14,\n  \"cline.openAiBaseUrl\": \"https://api.openai.com/v1\"\n}\n")
 	mustWrite(t, settings, string(original))
 	mustWrite(t, filepath.Join(home, ".vscode", "extensions", "fyberlabs.hypermesh-vscode-0.1.0", "package.json"), `{}`)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: api.DefaultConductorBase, GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://127.0.0.1:8787", GOOS: "linux"}
 	if _, err := Enable(opts, "cline", false); err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +337,7 @@ func TestSharedVSCodeSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(both), "http://127.0.0.1:8787/v1") || !strings.Contains(string(both), "http://127.0.0.1:8787") {
+	if !strings.Contains(string(both), "https://127.0.0.1:8787/v1") || !strings.Contains(string(both), "https://127.0.0.1:8787") {
 		t.Fatalf("settings %s", both)
 	}
 	if _, err := Disable(opts, "hypermesh-vscode", false); err != nil {
@@ -348,7 +347,7 @@ func TestSharedVSCodeSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(clineOnly), "hypermesh.apiBase") || !strings.Contains(string(clineOnly), "http://127.0.0.1:8787/v1") {
+	if strings.Contains(string(clineOnly), "hypermesh.apiBase") || !strings.Contains(string(clineOnly), "https://127.0.0.1:8787/v1") {
 		t.Fatalf("after vscode disable %s", clineOnly)
 	}
 	if _, err := Disable(opts, "cline", false); err != nil {
@@ -369,7 +368,7 @@ func TestUnsupportedAndAll(t *testing.T) {
 	mustWrite(t, gemini, "{}\n")
 	aider := filepath.Join(home, ".aider.conf.yml")
 	mustWrite(t, aider, "openai-api-base: https://example.invalid/v1\n")
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: api.DefaultConductorBase, GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://127.0.0.1:8787", GOOS: "linux"}
 	if _, err := Enable(opts, "gemini", false); err == nil {
 		t.Fatal("expected unsupported error")
 	}
@@ -411,7 +410,7 @@ func TestContinueYAMLAndZed(t *testing.T) {
 	zed := filepath.Join(home, ".config", "zed", "settings.json")
 	zedOriginal := []byte("{\"theme\":\"dark\"}\n")
 	mustWrite(t, zed, string(zedOriginal))
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: api.DefaultConductorBase, GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://127.0.0.1:8787", GOOS: "linux"}
 	if _, err := Enable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
@@ -422,14 +421,14 @@ func TestContinueYAMLAndZed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "name: Hypermesh Conductor") || !strings.Contains(string(got), "apiBase: http://127.0.0.1:8787/v1") || !strings.Contains(string(got), "name: Other") || strings.Contains(string(got), "sk-") {
+	if !strings.Contains(string(got), "name: Hypermesh Conductor") || !strings.Contains(string(got), "apiBase: https://127.0.0.1:8787/v1") || !strings.Contains(string(got), "name: Other") || strings.Contains(string(got), "sk-") {
 		t.Fatalf("continue %s", got)
 	}
 	zedNow, err := os.ReadFile(zed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(zedNow), `"api_url": "http://127.0.0.1:8787/v1"`) || !strings.Contains(string(zedNow), `"api_url": "http://127.0.0.1:8787"`) {
+	if !strings.Contains(string(zedNow), `"api_url": "https://127.0.0.1:8787/v1"`) || !strings.Contains(string(zedNow), `"api_url": "https://127.0.0.1:8787"`) {
 		t.Fatalf("zed %s", zedNow)
 	}
 	if strings.Contains(string(zedNow), "max_tokens") || strings.Contains(string(zedNow), "tok/s") {
@@ -490,8 +489,8 @@ func TestJSONCTrailingCommasPreserveStrings(t *testing.T) {
 
 func TestCodexEquivalentProviderHeaders(t *testing.T) {
 	for _, header := range []string{`[model_providers.hypermesh] # custom`, `[model_providers."hypermesh"]`, `[ "model_providers" . 'hypermesh' ]`} {
-		input := header + "\nbase_url = \"http://old/v1\"\n[profiles.work] # preserved\nmodel = \"keep\"\n"
-		got, err := editCodex(input, "http://new/v1")
+		input := header + "\nbase_url = \"https://old/v1\"\n[profiles.work] # preserved\nmodel = \"keep\"\n"
+		got, err := editCodex(input, "https://new/v1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -499,7 +498,7 @@ func TestCodexEquivalentProviderHeaders(t *testing.T) {
 		if err := toml.Unmarshal(got, &root); err != nil {
 			t.Fatal(err)
 		}
-		if codexBaseURL(string(got)) != "http://new/v1" || root["profiles"].(map[string]any)["work"].(map[string]any)["model"] != "keep" {
+		if codexBaseURL(string(got)) != "https://new/v1" || root["profiles"].(map[string]any)["work"].(map[string]any)["model"] != "keep" {
 			t.Fatalf("lost config: %s", got)
 		}
 	}
@@ -507,7 +506,7 @@ func TestCodexEquivalentProviderHeaders(t *testing.T) {
 
 func TestContinueYAMLLists(t *testing.T) {
 	for _, input := range []string{"models: [] # keep comment\n", "models: [{name: Other, provider: openai}]\n", "models: # keep comment\n- name: Other\n  provider: openai\n", "models:\n    - name: Other\n      provider: openai\n"} {
-		got, err := editContinueYAML(input, "http://new/v1")
+		got, err := editContinueYAML(input, "https://new/v1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -521,10 +520,10 @@ func TestContinueYAMLLists(t *testing.T) {
 		if strings.Contains(input, "Other") {
 			want = 2
 		}
-		if len(config.Models) != want || config.Models[want-1]["apiBase"] != "http://new/v1" {
+		if len(config.Models) != want || config.Models[want-1]["apiBase"] != "https://new/v1" {
 			t.Fatalf("lost models: %s", got)
 		}
-		again, err := editContinueYAML(string(got), "http://updated/v1")
+		again, err := editContinueYAML(string(got), "https://updated/v1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -537,13 +536,13 @@ func TestContinueYAMLLists(t *testing.T) {
 func TestSymlinkedConfigRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	target := filepath.Join(home, "dotfiles", "aider.yml")
-	original := "openai-api-base: http://original/v1\n"
+	original := "openai-api-base: https://original/v1\n"
 	mustWrite(t, target, original)
 	link := filepath.Join(home, ".aider.conf.yml")
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
 	if _, err := Enable(opts, "aider", false); err != nil {
 		t.Fatal(err)
 	}
@@ -565,8 +564,8 @@ func TestSymlinkedConfigRoundTrip(t *testing.T) {
 }
 
 func TestShellConditionalAssignmentRemainsValid(t *testing.T) {
-	input := "if [ -n \"$USE_OPENAI\" ]; then\n  export OPENAI_BASE_URL=http://old\nfi\n"
-	got := editShell(input, "openai-env", []string{"OPENAI_BASE_URL"}, []string{"export OPENAI_BASE_URL=http://new"})
+	input := "if [ -n \"$USE_OPENAI\" ]; then\n  export OPENAI_BASE_URL=https://old\nfi\n"
+	got := editShell(input, "openai-env", []string{"OPENAI_BASE_URL"}, []string{"export OPENAI_BASE_URL=https://new"})
 	cmd := exec.Command("sh", "-n")
 	cmd.Stdin = strings.NewReader(got)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -577,22 +576,22 @@ func TestShellConditionalAssignmentRemainsValid(t *testing.T) {
 func TestSharedSettingsRetainIndependentTargets(t *testing.T) {
 	home := t.TempDir()
 	settings := filepath.Join(home, ".config", "Code", "User", "settings.json")
-	mustWrite(t, settings, `{"cline.openAiBaseUrl":"http://original/v1"}`)
+	mustWrite(t, settings, `{"cline.openAiBaseUrl":"https://original/v1"}`)
 	mustWrite(t, filepath.Join(home, ".vscode", "extensions", "fyberlabs.hypermesh-vscode-0.1.0", "package.json"), `{}`)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://first:1234", GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://first:1234", GOOS: "linux"}
 	if _, err := Enable(opts, "cline", false); err != nil {
 		t.Fatal(err)
 	}
-	opts.ConductorBase = "http://second:2345"
+	opts.ConductorBase = "https://second:2345"
 	if _, err := Enable(opts, "hypermesh-vscode", false); err != nil {
 		t.Fatal(err)
 	}
-	opts.ConductorBase = "http://unrelated:3456"
+	opts.ConductorBase = "https://unrelated:3456"
 	if _, err := Disable(opts, "hypermesh-vscode", false); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(settings)
-	if jsonString(got, "cline.openAiBaseUrl") != "http://first:1234/v1" || strings.Contains(got, "hypermesh.apiBase") {
+	if jsonString(got, "cline.openAiBaseUrl") != "https://first:1234/v1" || strings.Contains(got, "hypermesh.apiBase") {
 		t.Fatalf("remaining tool retargeted: %s", got)
 	}
 }
@@ -617,7 +616,7 @@ func TestMultilineShellAssignmentLeavesConfigUnchanged(t *testing.T) {
 		path := filepath.Join(home, ".profile")
 		original := "export OPENAI_BASE_URL=" + value + "\n"
 		mustWrite(t, path, original)
-		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
 		if _, err := Enable(opts, "openai-env", false); err == nil {
 			t.Fatal("accepted multiline assignment")
 		}
@@ -648,8 +647,8 @@ func TestMissingConfigUnderExternalSymlinkDenied(t *testing.T) {
 }
 func TestVSCodeOriginDetectedAsRedirected(t *testing.T) {
 	home := t.TempDir()
-	mustWrite(t, filepath.Join(home, ".config", "Code", "User", "settings.json"), `{"hypermesh.apiBase":"http://localhost:8787"}`)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	mustWrite(t, filepath.Join(home, ".config", "Code", "User", "settings.json"), `{"hypermesh.apiBase":"https://localhost:8787"}`)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
 	rows, err := Detect(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -668,10 +667,10 @@ func TestChangedShellTargetRestoresEveryPath(t *testing.T) {
 	home := t.TempDir()
 	bash := filepath.Join(home, ".bashrc")
 	profile := filepath.Join(home, ".profile")
-	original := "export OPENAI_BASE_URL=http://original\n"
-	next := "export OPENAI_BASE_URL=http://second\n"
+	original := "export OPENAI_BASE_URL=https://original\n"
+	next := "export OPENAI_BASE_URL=https://second\n"
 	mustWrite(t, bash, original)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
 	if _, err := Enable(opts, "openai-env", false); err != nil {
 		t.Fatal(err)
 	}
@@ -698,10 +697,10 @@ func TestDiffRedactsUnknownCredentialFields(t *testing.T) {
 
 func TestContinueDetectsFlowAndBlockEndpoints(t *testing.T) {
 	for _, content := range []string{
-		"models: [{name: Other, apiBase: https://other}, {name: Hypermesh Conductor, apiBase: http://127.0.0.1:8787/v1}]",
-		"models:\n  - name: Hypermesh Conductor\n    apiBase: http://127.0.0.1:8787/v1\n",
+		"models: [{name: Other, apiBase: https://other}, {name: Hypermesh Conductor, apiBase: https://127.0.0.1:8787/v1}]",
+		"models:\n  - name: Hypermesh Conductor\n    apiBase: https://127.0.0.1:8787/v1\n",
 	} {
-		if got := continueEndpoint(content, false); got != "http://127.0.0.1:8787/v1" {
+		if got := continueEndpoint(content, false); got != "https://127.0.0.1:8787/v1" {
 			t.Fatalf("endpoint %q", got)
 		}
 	}
@@ -713,11 +712,11 @@ func TestAiderReplacesCompleteYAMLValue(t *testing.T) {
 		"openai-api-base: |\n  https://api.openai.com/v1\nmodel: keep\n",
 		"{openai-api-base: https://api.openai.com/v1, model: keep}",
 	} {
-		got, err := editAider(input, "http://127.0.0.1:8787/v1")
+		got, err := editAider(input, "https://127.0.0.1:8787/v1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if yamlScalar(string(got), "openai-api-base") != "http://127.0.0.1:8787/v1" || yamlScalar(string(got), "model") != "keep" {
+		if yamlScalar(string(got), "openai-api-base") != "https://127.0.0.1:8787/v1" || yamlScalar(string(got), "model") != "keep" {
 			t.Fatalf("invalid replacement: %s", got)
 		}
 		if strings.Contains(string(got), "api.openai.com") {
@@ -731,7 +730,7 @@ func TestExtensionUsesOwningEditorSettings(t *testing.T) {
 		for _, tool := range []struct{ id, extension, key string }{{"cline", "saoudrizwan.claude-dev", "cline.openAiBaseUrl"}, {"roo", "rooveterinaryinc.roo-cline", "roo-cline.openAiBaseUrl"}, {"hypermesh-vscode", "fyberlabs.hypermesh-vscode", "hypermesh.apiBase"}} {
 			home := t.TempDir()
 			mustWrite(t, filepath.Join(home, entry.dir, "extensions", tool.extension+"-1.0.0", "package.json"), "{}")
-			opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+			opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
 			if _, err := Enable(opts, tool.id, false); err != nil {
 				t.Fatal(err)
 			}
@@ -748,6 +747,22 @@ func TestExtensionUsesOwningEditorSettings(t *testing.T) {
 			if exists(expected) {
 				t.Fatal("new settings file not removed on disable")
 			}
+		}
+	}
+}
+
+func TestToolRoutesRejectPlainHTTPWithoutWriting(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude", "settings.json")
+	original := `{"theme":"dark"}`
+	mustWrite(t, path, original)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://127.0.0.1:8787", GOOS: "linux"}
+	for _, dry := range []bool{true, false} {
+		if _, err := Enable(opts, "claude-code", dry); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+			t.Fatalf("insecure route accepted: %v", err)
+		}
+		if readFile(path) != original {
+			t.Fatal("config changed despite rejected transport")
 		}
 	}
 }

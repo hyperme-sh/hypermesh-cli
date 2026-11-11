@@ -647,6 +647,10 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 	if !enable {
 		return disableTool(t, spec, dryRun)
 	}
+	// External tools do not use this CLI's peer-verified Unix transport.
+	if !strings.HasPrefix(t.origin, "https://") {
+		return Result{}, fmt.Errorf("tool routes require an HTTPS Conductor origin; configure Conductor TLS and use --conductor-base https://host:port (CLI chat uses its protected socket)")
+	}
 	found, err := detect(t)
 	if err != nil {
 		return Result{}, err
