@@ -682,3 +682,14 @@ func TestDiffRedactsUnknownCredentialFields(t *testing.T) {
 		}
 	}
 }
+
+func TestContinueDetectsFlowAndBlockEndpoints(t *testing.T) {
+	for _, content := range []string{
+		"models: [{name: Other, apiBase: https://other}, {name: Hypermesh Conductor, apiBase: http://127.0.0.1:8787/v1}]",
+		"models:\n  - name: Hypermesh Conductor\n    apiBase: http://127.0.0.1:8787/v1\n",
+	} {
+		if got := continueEndpoint(content, false); got != "http://127.0.0.1:8787/v1" {
+			t.Fatalf("endpoint %q", got)
+		}
+	}
+}

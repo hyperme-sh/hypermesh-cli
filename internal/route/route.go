@@ -1447,29 +1447,25 @@ func continueEndpoint(content string, asJSON bool) string {
 		}
 		return ""
 	}
-	if strings.Contains(content, continueTitle) {
-		lines := strings.Split(content, "\n")
-		anchor := -1
-		for i, line := range lines {
-			if strings.Contains(line, continueTitle) {
-				anchor = i
-				break
-			}
-		}
-		if anchor >= 0 {
-			limit := anchor + 8
-			if limit > len(lines) {
-				limit = len(lines)
-			}
-			for _, line := range lines[anchor:limit] {
-				trim := strings.TrimSpace(line)
-				if strings.HasPrefix(trim, "apiBase:") {
-					return unquote(strings.TrimSpace(strings.TrimPrefix(trim, "apiBase:")))
-				}
-			}
+	var root struct {
+		Models []struct {
+			Name    string `yaml:"name"`
+			Title   string `yaml:"title"`
+			APIBase string `yaml:"apiBase"`
+		} `yaml:"models"`
+	}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return ""
+	}
+	for _, model := range root.Models {
+		if model.Name == continueTitle || model.Title == continueTitle {
+			return model.APIBase
 		}
 	}
-	return yamlScalar(content, "apiBase")
+	if len(root.Models) > 0 {
+		return root.Models[0].APIBase
+	}
+	return ""
 }
 
 func jsonString(content string, path ...string) string {
