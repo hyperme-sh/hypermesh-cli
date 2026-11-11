@@ -745,7 +745,21 @@ func disableTool(t target, spec Tool, dryRun bool) (Result, error) {
 			ordered := append([]string{}, remaining...)
 			sort.Strings(ordered)
 			for _, other := range ordered {
-				next, err = editPath(t, other, path, next)
+				opts := t.Options
+				opts.ConductorBase = others[other].ConductorBase
+				if opts.ConductorBase == "" {
+					// Older state files did not record a target. Recover it from
+					// the remaining tool, never from the disable invocation.
+					_, _, opts.ConductorBase, _, _ = inspect(t, other)
+					if opts.ConductorBase == "" {
+						return Result{}, fmt.Errorf("cannot determine saved endpoint for %s", other)
+					}
+				}
+				otherTarget, targetErr := prepare(opts)
+				if targetErr != nil {
+					return Result{}, targetErr
+				}
+				next, err = editPath(otherTarget, other, path, next)
 				if err != nil {
 					return Result{}, err
 				}
@@ -912,9 +926,10 @@ func editCodex(content, openai string) string {
 	set := false
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "[") && strings.HasSuffix(trim, "]") {
+		header := tomlTableHeader(trim)
+		if header != "" {
 			inTable = true
-			skipping = trim == "[model_providers.hypermesh]"
+			skipping = header == "[model_providers.hypermesh]"
 			if skipping {
 				continue
 			}
@@ -941,6 +956,37 @@ func editCodex(content, openai string) string {
 		body += "\n"
 	}
 	return body + "\n" + table
+}
+
+func tomlTableHeader(line string) string {
+	var quote byte
+	escaped := false
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if quote == '"' && ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+		} else if ch == '"' || ch == '\'' {
+			quote = ch
+		} else if ch == '#' {
+			line = line[:i]
+			break
+		}
+	}
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+		return line
+	}
+	return ""
 }
 
 func editAider(content, openai string) string {
@@ -1046,10 +1092,24 @@ func editContinueYAML(content, openai string) string {
 	if strings.Contains(text, "name: "+continueTitle) || strings.Contains(text, "title: "+continueTitle) {
 		return replaceNearbyAPIBase(text, openai)
 	}
-	item := fmt.Sprintf("  - name: %s\n    provider: openai\n    model: conductor\n    apiBase: %s\n    apiKey: ${{ secrets.%s }}\n", continueTitle, openai, keyReference)
+	itemForIndent := func(indent string) string {
+		return fmt.Sprintf("%s- name: %s\n%s  provider: openai\n%s  model: conductor\n%s  apiBase: %s\n%s  apiKey: ${{ secrets.%s }}\n", indent, continueTitle, indent, indent, indent, openai, indent, keyReference)
+	}
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "models:" {
+			indent := "  "
+			for _, following := range lines[i+1:] {
+				trimmed := strings.TrimSpace(following)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+				if strings.HasPrefix(trimmed, "- ") || trimmed == "-" {
+					indent = following[:len(following)-len(strings.TrimLeft(following, " \t"))]
+				}
+				break
+			}
+			item := itemForIndent(indent)
 			head := append([]string{}, lines[:i+1]...)
 			head = append(head, strings.Split(strings.TrimRight(item, "\n"), "\n")...)
 			head = append(head, lines[i+1:]...)
@@ -1063,7 +1123,7 @@ func editContinueYAML(content, openai string) string {
 	if strings.TrimSpace(text) != "" && !strings.HasSuffix(text, "\n") {
 		text += "\n"
 	}
-	return text + "models:\n" + item
+	return text + "models:\n" + itemForIndent("  ")
 }
 
 func replaceNearbyAPIBase(content, openai string) string {
@@ -1183,6 +1243,8 @@ func stripAssignments(content string, keys []string) string {
 		body = strings.TrimSpace(body)
 		key, _, ok := strings.Cut(body, "=")
 		if ok && want[strings.TrimSpace(key)] && !strings.HasPrefix(trim, "#") {
+			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			kept = append(kept, indent+": # assignment managed by hypermesh-route below")
 			continue
 		}
 		kept = append(kept, line)
@@ -1426,8 +1488,37 @@ func stripJSONC(content []byte) []byte {
 		}
 		b.WriteByte(ch)
 	}
-	trailing := regexp.MustCompile(`,(\s*[}\]])`)
-	return []byte(trailing.ReplaceAllString(b.String(), "$1"))
+	clean := b.String()
+	var out strings.Builder
+	inString, escape = false, false
+	for i := 0; i < len(clean); i++ {
+		ch := clean[i]
+		if inString {
+			out.WriteByte(ch)
+			if escape {
+				escape = false
+			} else if ch == '\\' {
+				escape = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inString = true
+		}
+		if ch == ',' {
+			j := i + 1
+			for j < len(clean) && strings.ContainsRune(" \t\r\n", rune(clean[j])) {
+				j++
+			}
+			if j < len(clean) && (clean[j] == '}' || clean[j] == ']') {
+				continue
+			}
+		}
+		out.WriteByte(ch)
+	}
+	return []byte(out.String())
 }
 
 func marshalPretty(v any) ([]byte, error) {
@@ -1594,8 +1685,9 @@ func underHome(home, path string) error {
 }
 
 type managedState struct {
-	ID    string   `json:"id"`
-	Paths []string `json:"paths"`
+	ID            string   `json:"id"`
+	Paths         []string `json:"paths"`
+	ConductorBase string   `json:"conductor_base,omitempty"`
 }
 
 type fileSnap struct {
@@ -1679,7 +1771,7 @@ func setManaged(t target, id string, paths []string) error {
 		return err
 	}
 	_ = os.Chmod(backupRoot(t), 0o700)
-	raw, err := marshalPretty(managedState{ID: id, Paths: paths})
+	raw, err := marshalPretty(managedState{ID: id, Paths: paths, ConductorBase: t.ConductorBase})
 	if err != nil {
 		return err
 	}
@@ -1837,9 +1929,6 @@ func redactDiff(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		if !secretLine.MatchString(line) {
-			continue
-		}
-		if strings.Contains(line, "${") || strings.Contains(line, "{env:") || strings.Contains(line, "printenv ") {
 			continue
 		}
 		lines[i] = redactValues(line)

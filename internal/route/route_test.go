@@ -1,7 +1,9 @@
 package route
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -459,4 +461,92 @@ func mustWrite(t *testing.T, path, content string) {
 
 func jsonMarshal(v any) ([]byte, error) {
 	return marshalPretty(v)
+}
+
+func TestJSONCTrailingCommasPreserveStrings(t *testing.T) {
+	input := []byte(`{
+ // settings with delimiter text
+ "prompt": ",}", "arrayText": ",]", "quoted": "\\\",}",
+ "items": ["keep,]", /* trailing */],
+}`)
+	var got map[string]any
+	if err := unmarshalJSON(input, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["prompt"] != ",}" || got["arrayText"] != ",]" || got["quoted"] != `\",}` {
+		t.Fatalf("string contents changed: %#v", got)
+	}
+	if got["items"].([]any)[0] != "keep,]" {
+		t.Fatal("array string changed")
+	}
+}
+
+func TestCodexTableCommentsDoNotDuplicateProvider(t *testing.T) {
+	input := "[model_providers.hypermesh] # custom\nbase_url = \"http://old/v1\"\n[profiles.work] # preserved\nmodel = \"keep\"\n"
+	got := editCodex(input, "http://new/v1")
+	if strings.Count(got, "[model_providers.hypermesh]") != 1 || strings.Contains(got, "http://old") || !strings.Contains(got, "[profiles.work] # preserved\nmodel = \"keep\"") {
+		t.Fatalf("invalid replacement: %s", got)
+	}
+	if tomlTableHeader(`[profiles."a#b"] # note`) != `[profiles."a#b"]` {
+		t.Fatal("quoted hash treated as comment")
+	}
+}
+
+func TestContinueYAMLUsesExistingSequenceIndent(t *testing.T) {
+	for _, indent := range []string{"", "  ", "    "} {
+		t.Run(fmt.Sprintf("indent-%d", len(indent)), func(t *testing.T) {
+			old := indent + "- name: Other\n" + indent + "  provider: openai\n"
+			got := editContinueYAML("models:\n# keep comment\n"+old+"context: []\n", "http://new/v1")
+			if !strings.Contains(got, "models:\n"+indent+"- name: Hypermesh Conductor\n"+indent+"  provider: openai\n") || !strings.Contains(got, old+"context: []\n") {
+				t.Fatalf("mixed indentation: %s", got)
+			}
+		})
+	}
+}
+
+func TestShellConditionalAssignmentRemainsValid(t *testing.T) {
+	input := "if [ -n \"$USE_OPENAI\" ]; then\n  export OPENAI_BASE_URL=http://old\nfi\n"
+	got := editShell(input, "openai-env", []string{"OPENAI_BASE_URL"}, []string{"export OPENAI_BASE_URL=http://new"})
+	cmd := exec.Command("sh", "-n")
+	cmd.Stdin = strings.NewReader(got)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("invalid shell: %v %s\n%s", err, output, got)
+	}
+}
+
+func TestSharedSettingsRetainIndependentTargets(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(home, ".config", "Code", "User", "settings.json")
+	mustWrite(t, settings, `{"cline.openAiBaseUrl":"http://original/v1"}`)
+	mustWrite(t, filepath.Join(home, ".vscode", "extensions", "fyberlabs.hypermesh-vscode-0.1.0", "package.json"), `{}`)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://first:1234", GOOS: "linux"}
+	if _, err := Enable(opts, "cline", false); err != nil {
+		t.Fatal(err)
+	}
+	opts.ConductorBase = "http://second:2345"
+	if _, err := Enable(opts, "hypermesh-vscode", false); err != nil {
+		t.Fatal(err)
+	}
+	opts.ConductorBase = "http://unrelated:3456"
+	if _, err := Disable(opts, "hypermesh-vscode", false); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(settings)
+	if jsonString(got, "cline.openAiBaseUrl") != "http://first:1234/v1" || strings.Contains(got, "hypermesh.apiBase") {
+		t.Fatalf("remaining tool retargeted: %s", got)
+	}
+}
+
+func TestDiffRedactsLiteralFallbackSecrets(t *testing.T) {
+	for _, input := range []string{
+		`export OPENAI_API_KEY="${OPENAI_API_KEY:-sk-sensitive-fallback}"`,
+		`"apiKey": "{env:KEY}-sk-sensitive-fallback",`,
+		`apiKeyHelper = "printenv KEY; echo sk-sensitive-fallback"`,
+	} {
+		for _, diff := range []string{unified("config", input, ""), unified("config", "", input)} {
+			if strings.Contains(diff, "sk-sensitive-fallback") {
+				t.Fatalf("secret leaked: %s", diff)
+			}
+		}
+	}
 }
