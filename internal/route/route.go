@@ -96,7 +96,7 @@ func Matrix() []Tool {
 		{ID: "claude-code", Name: "Claude Code", Protocol: ProtoAnthropic, ConfigKey: "~/.claude/settings.json env.ANTHROPIC_BASE_URL", Supported: true, Reason: "Anthropic client. Conductor serves POST /v1/messages."},
 		{ID: "codex", Name: "OpenAI Codex CLI", Protocol: ProtoOpenAI, ConfigKey: "~/.codex/config.toml model_providers.hypermesh.base_url", Supported: true, Reason: "OpenAI Responses and chat. Conductor serves POST /v1/responses and POST /v1/chat/completions."},
 		{ID: "gemini", Name: "Gemini CLI", Protocol: ProtoNone, ConfigKey: "~/.gemini/settings.json (no base URL key)", Supported: false, Reason: "Gemini CLI talks to the Gemini API. It has no documented OpenAI-compatible or Anthropic-compatible base URL."},
-		{ID: "aider", Name: "Aider", Protocol: ProtoOpenAI, ConfigKey: "~/.aider.conf.yml openai-api-base", Supported: true},
+		{ID: "aider", Name: "Aider", Protocol: ProtoOpenAI, ConfigKey: "~/.aider.conf.yml openai-api-base", Supported: false, Reason: "Automatic endpoint edits cannot safely rebind Aider credentials from config, environment and .env files. Configure a Hypermesh credential manually."},
 		{ID: "opencode", Name: "OpenCode", Protocol: ProtoOpenAI, ConfigKey: "~/.config/opencode/opencode.json provider.hypermesh.options.baseURL", Supported: true},
 		{ID: "continue", Name: "Continue", Protocol: ProtoOpenAI, ConfigKey: "~/.continue/config.yaml or config.json models apiBase", Supported: true, Reason: "config.ts is detected and left unchanged."},
 		{ID: "cline", Name: "Cline", Protocol: ProtoOpenAI, ConfigKey: "extension provider state (manual configuration)", Supported: false, Reason: "Cline stores provider configuration in extension global state, not settings.json. Configure it in the extension UI."},
@@ -104,7 +104,7 @@ func Matrix() []Tool {
 		{ID: "cursor", Name: "Cursor", Protocol: ProtoNone, ConfigKey: "Cursor model UI state (not a documented config file)", Supported: false, Reason: "The OpenAI base URL override lives in Cursor UI state. This CLI does not edit that database."},
 		{ID: "vscode-copilot", Name: "VS Code Copilot", Protocol: ProtoNone, ConfigKey: "Copilot BYOK secret storage (no documented base URL)", Supported: false, Reason: "Bring-your-own-key settings are not a documented base URL in settings.json."},
 		{ID: "hypermesh-vscode", Name: "Hypermesh for VS Code", Protocol: ProtoOpenAI, ConfigKey: "VS Code User settings.json hypermesh.apiBase", Supported: true, Reason: "The extension posts {apiBase}/v1/chat/completions with Authorization: Bearer. It does not send X-Conductor-Class, so Conductor still needs default_class."},
-		{ID: "zed", Name: "Zed", Protocol: ProtoBoth, ConfigKey: "~/.config/zed/settings.json language_models.openai.api_url and language_models.anthropic.api_url", Supported: true, Reason: "API keys stay in the system keychain."},
+		{ID: "zed", Name: "Zed", Protocol: ProtoBoth, ConfigKey: "~/.config/zed/settings.json language_models.openai.api_url and language_models.anthropic.api_url", Supported: false, Reason: "Retargeting built-in providers would reuse their keychain credentials. Configure a separate Hypermesh provider and credential in Zed."},
 		{ID: "jetbrains", Name: "JetBrains AI", Protocol: ProtoNone, ConfigKey: "JetBrains options (no documented base URL)", Supported: false, Reason: "AI Assistant does not document an OpenAI or Anthropic base URL file."},
 		{ID: "lmstudio", Name: "LM Studio", Protocol: ProtoNone, ConfigKey: "~/.lmstudio (local server)", Supported: false, Reason: "LM Studio is a local OpenAI-compatible server. It has no upstream client base URL to retarget."},
 		{ID: "ollama", Name: "Ollama", Protocol: ProtoNone, ConfigKey: "~/.ollama (local server)", Supported: false, Reason: "Ollama is a local server. OLLAMA_HOST is its listen address, not an upstream base URL."},
@@ -926,10 +926,13 @@ func editPath(t target, id, path string, content []byte) ([]byte, error) {
 		})), nil
 	case "anthropic-env":
 		return []byte(editShell(string(content), id, []string{
-			"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY",
+			"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS",
 		}, []string{
 			fmt.Sprintf("export ANTHROPIC_BASE_URL=%q", t.origin),
 			`export ANTHROPIC_API_KEY="${HYPERMESH_API_KEY}"`,
+			`export ANTHROPIC_AUTH_TOKEN=""`,
+			`export CLAUDE_CODE_OAUTH_TOKEN=""`,
+			`export ANTHROPIC_CUSTOM_HEADERS=""`,
 		})), nil
 	default:
 		return nil, fmt.Errorf("no editor for %s", id)
@@ -966,11 +969,13 @@ func editClaude(content []byte, origin string) ([]byte, error) {
 	}
 	env["ANTHROPIC_BASE_URL"] = origin
 	root["env"] = env
-	if _, hasKey := env["ANTHROPIC_API_KEY"]; !hasKey {
-		if _, hasHelper := root["apiKeyHelper"]; !hasHelper {
-			root["apiKeyHelper"] = "printenv " + keyReference
-		}
+	// Empty settings env values override inherited provider credentials. The
+	// helper selects only the Hypermesh key, without copying it to disk.
+	for _, key := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS"} {
+		env[key] = ""
 	}
+	root["apiKeyHelper"] = "printenv " + keyReference
+
 	return marshalPretty(root)
 }
 
@@ -990,6 +995,18 @@ func editCodex(content, openai string) ([]byte, error) {
 	root["model_providers"] = providers
 	root["model_provider"] = "hypermesh"
 	return toml.Marshal(root)
+}
+
+func yamlContainsAnchor(node *yaml.Node) bool {
+	if node.Anchor != "" {
+		return true
+	}
+	for _, child := range node.Content {
+		if yamlContainsAnchor(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func editAider(content, openai string) ([]byte, error) {
@@ -1014,6 +1031,9 @@ func editAider(content, openai string) ([]byte, error) {
 		}
 		found = true
 		old := root.Content[i+1]
+		if yamlContainsAnchor(old) {
+			return nil, fmt.Errorf("cannot safely replace anchored Aider endpoint")
+		}
 		root.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: openai, HeadComment: old.HeadComment, LineComment: old.LineComment, FootComment: old.FootComment}
 	}
 	if !found {
@@ -1076,9 +1096,7 @@ func editContinueJSON(content []byte, openai string) ([]byte, error) {
 		if title == continueTitle || name == continueTitle {
 			obj["provider"] = "openai"
 			obj["apiBase"] = openai
-			if _, exists := obj["apiKey"]; !exists {
-				obj["apiKey"] = fresh["apiKey"]
-			}
+			obj["apiKey"] = fresh["apiKey"]
 			models[i] = obj
 			replaced = true
 		}
@@ -1143,20 +1161,8 @@ func editContinueYAML(content, openai string) ([]byte, error) {
 	if models.Anchor != "" || model.Anchor != "" {
 		return nil, fmt.Errorf("cannot safely redirect anchored Continue models")
 	}
-	var containsAnchor func(*yaml.Node) bool
-	containsAnchor = func(node *yaml.Node) bool {
-		if node.Anchor != "" {
-			return true
-		}
-		for _, child := range node.Content {
-			if containsAnchor(child) {
-				return true
-			}
-		}
-		return false
-	}
 	for i := 0; i < len(model.Content); i += 2 {
-		if (model.Content[i].Value == "provider" || model.Content[i].Value == "apiBase") && containsAnchor(model.Content[i+1]) {
+		if (model.Content[i].Value == "provider" || model.Content[i].Value == "apiBase" || model.Content[i].Value == "apiKey") && yamlContainsAnchor(model.Content[i+1]) {
 			return nil, fmt.Errorf("cannot safely replace anchored Continue %s", model.Content[i].Value)
 		}
 	}
@@ -1175,7 +1181,7 @@ func editContinueYAML(content, openai string) ([]byte, error) {
 	set("provider", "openai", false)
 	set("model", "conductor", true)
 	set("apiBase", openai, false)
-	set("apiKey", "${{ secrets."+keyReference+" }}", true)
+	set("apiKey", "${{ secrets."+keyReference+" }}", false)
 	return yaml.Marshal(&doc)
 }
 

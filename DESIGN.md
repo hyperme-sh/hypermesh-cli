@@ -89,7 +89,7 @@ OpenAI-compatible clients get `{origin}/v1`. Anthropic clients get the origin, b
 | Claude Code | `claude` on `PATH`, `~/.claude/settings.json`, `~/.claude.json` | `env.ANTHROPIC_BASE_URL` | anthropic | yes |
 | OpenAI Codex CLI | `codex` on `PATH`, `~/.codex/config.toml` | `model_providers.hypermesh.base_url` (`wire_api = responses`) | openai | yes |
 | Gemini CLI | `gemini` on `PATH`, `~/.gemini/` | no base URL key | none | no |
-| Aider | `aider` on `PATH`, `~/.aider.conf.yml` | `openai-api-base` | openai | yes |
+| Aider | `aider` on `PATH`, `~/.aider.conf.yml` | `openai-api-base` | openai | no (credential rebinding requires manual setup) |
 | OpenCode | `opencode` on `PATH`, `~/.config/opencode/opencode.json` | `provider.hypermesh.options.baseURL` | openai | yes |
 | Continue | `~/.continue/config.yaml` or `config.json` | `models` `apiBase` | openai | yes (`config.ts` is reported and not edited) |
 | Cline | extension dir or `cline.*` in VS Code `settings.json` | `cline.openAiBaseUrl` | openai | yes (key stays in secret storage) |
@@ -97,7 +97,7 @@ OpenAI-compatible clients get `{origin}/v1`. Anthropic clients get the origin, b
 | Cursor | `cursor` on `PATH`, `~/.cursor` | UI state, no documented file | none | no |
 | VS Code Copilot | `github.copilot` settings or extension | BYOK secret storage | none | no |
 | Hypermesh for VS Code | `fyberlabs.hypermesh-vscode` or `hypermesh.apiBase` | `hypermesh.apiBase` | openai | yes |
-| Zed | `zed` on `PATH`, `~/.config/zed/settings.json` | `language_models.openai.api_url` and `language_models.anthropic.api_url` | openai+anthropic | yes (no invented context length) |
+| Zed | `zed` on `PATH`, `~/.config/zed/settings.json` | `language_models.openai.api_url` and `language_models.anthropic.api_url` | openai+anthropic | no (built-in providers would reuse keychain credentials) |
 | JetBrains AI | `~/.config/JetBrains` or a product config dir | no documented base URL file | none | no |
 | LM Studio | `~/.lmstudio` | local server | none | no |
 | Ollama | `ollama` on `PATH`, `~/.ollama` | `OLLAMA_HOST` is the listen address | none | no |

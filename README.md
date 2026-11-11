@@ -220,11 +220,11 @@ Also: `HYPERMESH_API_KEY`, `HYPERMESH_TENANT_ID`, `HYPERMESH_RENTER_USER_ID`, `H
 ```bash
 hypermesh route detect
 hypermesh route detect --json
-hypermesh route enable aider --dry-run
-hypermesh route enable aider
+hypermesh route enable continue --dry-run
+hypermesh route enable continue
 hypermesh route enable --all
 hypermesh route status
-hypermesh route disable aider
+hypermesh route disable continue
 hypermesh route disable --all
 ```
 
@@ -241,3 +241,5 @@ Local transport identity and Hypermesh login are separate. Conductor currently r
 Third-party tool redirects require an HTTPS Conductor origin because those tools do not use the CLI's protected socket transport. Configure Conductor's existing TLS network mode with a certificate trusted by the tool, then use `hypermesh --conductor-base https://host:port route enable TOOL`. Plain HTTP route enable and dry-run return an error before writing config. Disable still restores existing backups regardless of transport.
 
 Cline and Roo are detected but are not automatically redirected: their provider configuration lives in extension global state, not VS Code user settings. Use their own provider UI. The CLI does not edit extension databases or claim that unused settings keys change the provider.
+
+Automatic redirects select Hypermesh credential references for Claude Code and Continue, replacing any previous provider credential selector. Aider and Zed are detected but automatic enable is refused because this editor cannot safely rebind their environment/.env or keychain credentials. Configure a distinct Hypermesh credential in those tools manually. Existing CLI backups can still be restored with `route disable`.

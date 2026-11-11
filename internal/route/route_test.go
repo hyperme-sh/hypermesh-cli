@@ -144,8 +144,8 @@ func TestDetectParsesFixtureHome(t *testing.T) {
 func TestEnableDisableRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	configDir := filepath.Join(home, ".config", "hypermesh")
-	aiderPath := filepath.Join(home, ".aider.conf.yml")
-	original := []byte("# keep\nopenai-api-base: https://example.invalid/v1\nmodel: demo\n")
+	aiderPath := filepath.Join(home, ".continue", "config.yaml")
+	original := []byte("models:\n  - name: Hypermesh Conductor\n    provider: openai\n    apiBase: https://example.invalid/v1\n    model: demo\n")
 	mustWrite(t, aiderPath, string(original))
 	mustWrite(t, filepath.Join(home, ".claude", "settings.json"), "{\n  \"theme\": \"dark\"\n}\n")
 	claudeOriginal, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
@@ -157,7 +157,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 		Environ: []string{"HYPERMESH_API_KEY=sk-live-secret-value"},
 	}
 
-	dry, err := Enable(opts, "aider", true)
+	dry, err := Enable(opts, "continue", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,20 +172,20 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 		t.Fatalf("dry-run changed file %q", got)
 	}
 
-	if _, err := Enable(opts, "aider", false); err != nil {
+	if _, err := Enable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	enabled, err := os.ReadFile(aiderPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(enabled), "openai-api-base: https://127.0.0.1:8787/v1") || !strings.Contains(string(enabled), "model: demo") {
+	if !strings.Contains(string(enabled), "apiBase: https://127.0.0.1:8787/v1") || !strings.Contains(string(enabled), "model: demo") {
 		t.Fatalf("enabled %s", enabled)
 	}
 	if strings.Contains(string(enabled), "sk-live-secret-value") {
 		t.Fatal("secret pasted into aider config")
 	}
-	again, err := Enable(opts, "aider", false)
+	again, err := Enable(opts, "continue", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 		t.Fatalf("backup mode %o err %v", backupMode, err)
 	}
 
-	if _, err := Disable(opts, "aider", false); err != nil {
+	if _, err := Disable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := os.ReadFile(aiderPath)
@@ -249,7 +249,7 @@ func TestEnableDisableRoundTrip(t *testing.T) {
 	if string(restoredClaude) != string(claudeOriginal) {
 		t.Fatalf("claude restore\n got %q\nwant %q", restoredClaude, claudeOriginal)
 	}
-	unchanged, err := Disable(opts, "aider", false)
+	unchanged, err := Disable(opts, "continue", false)
 	if err != nil || unchanged.Action != "unchanged" {
 		t.Fatalf("second disable %+v %v", unchanged, err)
 	}
@@ -345,7 +345,7 @@ func TestUnsupportedAndAll(t *testing.T) {
 		if result.Tool == "gemini" && result.Action == "unsupported" {
 			sawGemini = true
 		}
-		if result.Tool == "aider" && result.Action == "enabled" {
+		if result.Tool == "aider" && result.Action == "unsupported" {
 			sawAider = true
 		}
 	}
@@ -373,8 +373,8 @@ func TestContinueYAMLAndZed(t *testing.T) {
 	if _, err := Enable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Enable(opts, "zed", false); err != nil {
-		t.Fatal(err)
+	if _, err := Enable(opts, "zed", false); err == nil {
+		t.Fatal("Zed credential reuse must be refused")
 	}
 	got, err := os.ReadFile(yamlPath)
 	if err != nil {
@@ -387,12 +387,10 @@ func TestContinueYAMLAndZed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(zedNow), `"api_url": "https://127.0.0.1:8787/v1"`) || !strings.Contains(string(zedNow), `"api_url": "https://127.0.0.1:8787"`) {
-		t.Fatalf("zed %s", zedNow)
+	if string(zedNow) != string(zedOriginal) {
+		t.Fatal("Zed config changed")
 	}
-	if strings.Contains(string(zedNow), "max_tokens") || strings.Contains(string(zedNow), "tok/s") {
-		t.Fatal("zed config invented a token figure")
-	}
+
 	if _, err := Disable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
@@ -495,14 +493,17 @@ func TestContinueYAMLLists(t *testing.T) {
 func TestSymlinkedConfigRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	target := filepath.Join(home, "dotfiles", "aider.yml")
-	original := "openai-api-base: https://original/v1\n"
+	original := "models:\n  - name: Hypermesh Conductor\n    provider: openai\n    apiBase: https://original/v1\n"
 	mustWrite(t, target, original)
-	link := filepath.Join(home, ".aider.conf.yml")
+	link := filepath.Join(home, ".continue", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(link), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
-	if _, err := Enable(opts, "aider", false); err != nil {
+	if _, err := Enable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.Readlink(link); err != nil || got != target {
@@ -511,7 +512,7 @@ func TestSymlinkedConfigRoundTrip(t *testing.T) {
 	if !strings.Contains(readFile(target), "localhost:8787") {
 		t.Fatal("target not updated")
 	}
-	if _, err := Disable(opts, "aider", false); err != nil {
+	if _, err := Disable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.Readlink(link); err != nil || got != target {
@@ -862,17 +863,17 @@ func TestSymlinkedHomeRouteRoundTrip(t *testing.T) {
 	if err := os.Symlink(realHome, home); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	path := filepath.Join(home, ".aider.conf.yml")
-	original := "openai-api-base: https://original/v1\n"
+	path := filepath.Join(home, ".continue", "config.yaml")
+	original := "models:\n  - name: Hypermesh Conductor\n    provider: openai\n    apiBase: https://original/v1\n"
 	mustWrite(t, path, original)
 	opts := Options{Home: home, ConfigDir: filepath.Join(home, ".config", "hypermesh"), ConductorBase: "https://localhost:8787", GOOS: "linux"}
-	if _, err := Enable(opts, "aider", false); err != nil {
+	if _, err := Enable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(readFile(path), "localhost:8787") {
 		t.Fatal("route was not enabled")
 	}
-	if _, err := Disable(opts, "aider", false); err != nil {
+	if _, err := Disable(opts, "continue", false); err != nil {
 		t.Fatal(err)
 	}
 	if readFile(path) != original {
@@ -887,7 +888,55 @@ func TestSymlinkedHomeRouteRoundTrip(t *testing.T) {
 	if err := underHome(home, filepath.Join(home, "outside", "config")); err == nil {
 		t.Fatal("external symlink allowed")
 	}
-	if err := underHome(home, filepath.Join(realHome, ".aider.conf.yml")); err == nil {
+	if err := underHome(home, filepath.Join(realHome, ".continue", "config.yaml")); err == nil {
 		t.Fatal("lexical containment check lost")
+	}
+}
+
+func TestCredentialSelectorsRebound(t *testing.T) {
+	claude, err := editClaude([]byte(`{"env":{"ANTHROPIC_API_KEY":"old-key","ANTHROPIC_AUTH_TOKEN":"old-token","CLAUDE_CODE_OAUTH_TOKEN":"old-oauth","ANTHROPIC_CUSTOM_HEADERS":"Authorization: old-header"},"apiKeyHelper":"printenv OTHER_KEY"}`), "https://conductor.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(claude), "old-") || strings.Contains(string(claude), "OTHER_KEY") || !strings.Contains(string(claude), "printenv HYPERMESH_API_KEY") {
+		t.Fatalf("unsafe Claude credentials: %s", claude)
+	}
+	for _, asJSON := range []bool{true, false} {
+		var got []byte
+		if asJSON {
+			got, err = editContinueJSON([]byte(`{"models":[{"title":"Hypermesh Conductor","apiKey":"old-provider-key"},{"title":"Other","apiKey":"other-provider-key"}]}`), "https://conductor.example/v1")
+		} else {
+			got, err = editContinueYAML("models:\n  - name: Hypermesh Conductor\n    apiKey: old-provider-key\n  - name: Other\n    apiKey: other-provider-key\n", "https://conductor.example/v1")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(got), "old-provider-key") || !strings.Contains(string(got), "other-provider-key") || !strings.Contains(string(got), "${{ secrets.HYPERMESH_API_KEY }}") {
+			t.Fatalf("unsafe Continue credentials: %s", got)
+		}
+	}
+}
+
+func TestAiderAnchorRejected(t *testing.T) {
+	if _, err := editAider("openai-api-base: &shared https://old.example/v1\nother: *shared\n", "https://conductor.example/v1"); err == nil {
+		t.Fatal("anchored Aider endpoint replaced")
+	}
+}
+
+func TestUnsafeCredentialToolsRefusedWithoutWrites(t *testing.T) {
+	for _, entry := range []struct{ id, path, body string }{
+		{"aider", ".aider.conf.yml", "openai-api-base: https://api.openai.com/v1\nopenai-api-key: old-provider-key\n"},
+		{"zed", ".config/zed/settings.json", `{"language_models":{"openai":{"api_url":"https://api.openai.com/v1"}}}`},
+	} {
+		home := t.TempDir()
+		path := filepath.Join(home, entry.path)
+		mustWrite(t, path, entry.body)
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://conductor.example", GOOS: "linux"}
+		if _, err := Enable(opts, entry.id, false); err == nil {
+			t.Fatalf("%s allowed unsafe redirect", entry.id)
+		}
+		if readFile(path) != entry.body {
+			t.Fatalf("%s changed config", entry.id)
+		}
 	}
 }
