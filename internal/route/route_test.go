@@ -108,7 +108,7 @@ func TestDetectParsesFixtureHome(t *testing.T) {
 	if !byID["opencode"].Detected || !byID["continue"].Detected {
 		t.Fatal("opencode or continue missing")
 	}
-	if byID["cline"].Endpoint != "https://api.openai.com/v1" || !byID["roo"].Detected {
+	if byID["cline"].Redirectable || byID["cline"].Endpoint != "" || !byID["roo"].Detected || byID["roo"].Supported {
 		t.Fatalf("editors cline=%+v roo=%+v", byID["cline"], byID["roo"])
 	}
 	if !byID["cursor"].Detected || byID["cursor"].Supported {
@@ -317,48 +317,6 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(profile); string(got) != string(profileOriginal) {
 		t.Fatalf("profile restore %q", got)
-	}
-}
-
-func TestSharedVSCodeSettingsRoundTrip(t *testing.T) {
-	home := t.TempDir()
-	settings := filepath.Join(home, ".config", "Code", "User", "settings.json")
-	original := []byte("{\n  // keep me\n  \"editor.fontSize\": 14,\n  \"cline.openAiBaseUrl\": \"https://api.openai.com/v1\"\n}\n")
-	mustWrite(t, settings, string(original))
-	mustWrite(t, filepath.Join(home, ".vscode", "extensions", "fyberlabs.hypermesh-vscode-0.1.0", "package.json"), `{}`)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://127.0.0.1:8787", GOOS: "linux"}
-	if _, err := Enable(opts, "cline", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Enable(opts, "hypermesh-vscode", false); err != nil {
-		t.Fatal(err)
-	}
-	both, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(both), "https://127.0.0.1:8787/v1") || !strings.Contains(string(both), "https://127.0.0.1:8787") {
-		t.Fatalf("settings %s", both)
-	}
-	if _, err := Disable(opts, "hypermesh-vscode", false); err != nil {
-		t.Fatal(err)
-	}
-	clineOnly, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(clineOnly), "hypermesh.apiBase") || !strings.Contains(string(clineOnly), "https://127.0.0.1:8787/v1") {
-		t.Fatalf("after vscode disable %s", clineOnly)
-	}
-	if _, err := Disable(opts, "cline", false); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := os.ReadFile(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(restored) != string(original) {
-		t.Fatalf("settings restore\n got %q\nwant %q", restored, original)
 	}
 }
 
@@ -573,26 +531,51 @@ func TestShellConditionalAssignmentRemainsValid(t *testing.T) {
 	}
 }
 
-func TestSharedSettingsRetainIndependentTargets(t *testing.T) {
-	home := t.TempDir()
-	settings := filepath.Join(home, ".config", "Code", "User", "settings.json")
-	mustWrite(t, settings, `{"cline.openAiBaseUrl":"https://original/v1"}`)
-	mustWrite(t, filepath.Join(home, ".vscode", "extensions", "fyberlabs.hypermesh-vscode-0.1.0", "package.json"), `{}`)
-	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://first:1234", GOOS: "linux"}
-	if _, err := Enable(opts, "cline", false); err != nil {
-		t.Fatal(err)
-	}
-	opts.ConductorBase = "https://second:2345"
-	if _, err := Enable(opts, "hypermesh-vscode", false); err != nil {
-		t.Fatal(err)
-	}
-	opts.ConductorBase = "https://unrelated:3456"
-	if _, err := Disable(opts, "hypermesh-vscode", false); err != nil {
-		t.Fatal(err)
-	}
-	got := readFile(settings)
-	if jsonString(got, "cline.openAiBaseUrl") != "https://first:1234/v1" || strings.Contains(got, "hypermesh.apiBase") {
-		t.Fatalf("remaining tool retargeted: %s", got)
+func TestSharedSymlinkConfigsRestoreOneOriginal(t *testing.T) {
+	for _, firstDisable := range []string{"claude-code", "opencode"} {
+		home := t.TempDir()
+		target := filepath.Join(home, ".config", "opencode", "opencode.json")
+		alias := filepath.Join(home, ".claude", "settings.json")
+		original := `{"theme":"keep"}`
+		mustWrite(t, target, original)
+		if err := os.MkdirAll(filepath.Dir(alias), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, alias); err != nil {
+			t.Fatal(err)
+		}
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://first:1234", GOOS: "linux"}
+		if _, err := Enable(opts, "claude-code", false); err != nil {
+			t.Fatal(err)
+		}
+		opts.ConductorBase = "https://second:2345"
+		if _, err := Enable(opts, "opencode", false); err != nil {
+			t.Fatal(err)
+		}
+		opts.ConductorBase = "https://unrelated:3456"
+		if _, err := Disable(opts, firstDisable, false); err != nil {
+			t.Fatal(err)
+		}
+		remaining := "opencode"
+		if firstDisable == "claude-code" {
+			if jsonString(readFile(target), "provider", "hypermesh", "options", "baseURL") != "https://second:2345/v1" {
+				t.Fatal("lost other tool")
+			}
+		} else {
+			remaining = "claude-code"
+			if jsonString(readFile(target), "env", "ANTHROPIC_BASE_URL") != "https://first:1234" {
+				t.Fatal("lost other target")
+			}
+		}
+		if _, err := Disable(opts, remaining, false); err != nil {
+			t.Fatal(err)
+		}
+		if readFile(target) != original {
+			t.Fatal("did not restore original")
+		}
+		if dest, err := os.Readlink(alias); err != nil || dest != target {
+			t.Fatal("symlink lost")
+		}
 	}
 }
 
@@ -727,7 +710,7 @@ func TestAiderReplacesCompleteYAMLValue(t *testing.T) {
 
 func TestExtensionUsesOwningEditorSettings(t *testing.T) {
 	for _, entry := range []struct{ dir, editor string }{{".cursor", "Cursor"}, {".vscode-insiders", "Code - Insiders"}, {".vscode", "Code"}} {
-		for _, tool := range []struct{ id, extension, key string }{{"cline", "saoudrizwan.claude-dev", "cline.openAiBaseUrl"}, {"roo", "rooveterinaryinc.roo-cline", "roo-cline.openAiBaseUrl"}, {"hypermesh-vscode", "fyberlabs.hypermesh-vscode", "hypermesh.apiBase"}} {
+		for _, tool := range []struct{ id, extension, key string }{{"hypermesh-vscode", "fyberlabs.hypermesh-vscode", "hypermesh.apiBase"}} {
 			home := t.TempDir()
 			mustWrite(t, filepath.Join(home, entry.dir, "extensions", tool.extension+"-1.0.0", "package.json"), "{}")
 			opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", GOOS: "linux"}
@@ -764,5 +747,28 @@ func TestToolRoutesRejectPlainHTTPWithoutWriting(t *testing.T) {
 		if readFile(path) != original {
 			t.Fatal("config changed despite rejected transport")
 		}
+	}
+}
+
+func TestUnsupportedExtensionStateIsNotWritten(t *testing.T) {
+	for _, id := range []string{"cline", "roo"} {
+		home := t.TempDir()
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://conductor.example", GOOS: "linux"}
+		result, err := Enable(opts, id, false)
+		if err == nil || result.Action != "unsupported" {
+			t.Fatalf("claimed supported: %s", id)
+		}
+		if exists(filepath.Join(home, ".config", "Code", "User", "settings.json")) {
+			t.Fatal("created fake config")
+		}
+	}
+}
+func TestOpenCodeSelectedModelIsDeclared(t *testing.T) {
+	got, err := editOpenCode([]byte(`{}`), "https://conductor.example/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jsonString(string(got), "model") != "hypermesh/conductor" || jsonString(string(got), "provider", "hypermesh", "models", "conductor", "name") == "" {
+		t.Fatalf("unresolved model: %s", got)
 	}
 }

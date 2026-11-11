@@ -99,8 +99,8 @@ func Matrix() []Tool {
 		{ID: "aider", Name: "Aider", Protocol: ProtoOpenAI, ConfigKey: "~/.aider.conf.yml openai-api-base", Supported: true},
 		{ID: "opencode", Name: "OpenCode", Protocol: ProtoOpenAI, ConfigKey: "~/.config/opencode/opencode.json provider.hypermesh.options.baseURL", Supported: true},
 		{ID: "continue", Name: "Continue", Protocol: ProtoOpenAI, ConfigKey: "~/.continue/config.yaml or config.json models apiBase", Supported: true, Reason: "config.ts is detected and left unchanged."},
-		{ID: "cline", Name: "Cline", Protocol: ProtoOpenAI, ConfigKey: "VS Code User settings.json cline.openAiBaseUrl", Supported: true, Reason: "The API key stays in VS Code secret storage. This CLI does not write it."},
-		{ID: "roo", Name: "Roo Code", Protocol: ProtoOpenAI, ConfigKey: "VS Code User settings.json roo-cline.openAiBaseUrl", Supported: true, Reason: "The API key stays in VS Code secret storage. This CLI does not write it."},
+		{ID: "cline", Name: "Cline", Protocol: ProtoOpenAI, ConfigKey: "extension provider state (manual configuration)", Supported: false, Reason: "Cline stores provider configuration in extension global state, not settings.json. Configure it in the extension UI."},
+		{ID: "roo", Name: "Roo Code", Protocol: ProtoOpenAI, ConfigKey: "extension provider state (manual configuration)", Supported: false, Reason: "Roo stores provider configuration in extension global state, not settings.json. Configure it in the extension UI."},
 		{ID: "cursor", Name: "Cursor", Protocol: ProtoNone, ConfigKey: "Cursor model UI state (not a documented config file)", Supported: false, Reason: "The OpenAI base URL override lives in Cursor UI state. This CLI does not edit that database."},
 		{ID: "vscode-copilot", Name: "VS Code Copilot", Protocol: ProtoNone, ConfigKey: "Copilot BYOK secret storage (no documented base URL)", Supported: false, Reason: "Bring-your-own-key settings are not a documented base URL in settings.json."},
 		{ID: "hypermesh-vscode", Name: "Hypermesh for VS Code", Protocol: ProtoOpenAI, ConfigKey: "VS Code User settings.json hypermesh.apiBase", Supported: true, Reason: "The extension posts {apiBase}/v1/chat/completions with Authorization: Bearer. It does not send X-Conductor-Class, so Conductor still needs default_class."},
@@ -216,7 +216,7 @@ func detect(t target) ([]Finding, error) {
 			}
 			row.Notes += note
 		}
-		row.Redirected = endpoint != "" && endpointMatches(spec.Protocol, endpoint, t)
+		row.Redirected = spec.Supported && endpoint != "" && endpointMatches(spec.Protocol, endpoint, t)
 		if spec.ID == "hypermesh-vscode" {
 			row.Redirected = endpoint == t.origin
 		}
@@ -254,9 +254,9 @@ func inspect(t target, id string) (evidence []string, path, endpoint string, red
 	case "continue":
 		return inspectContinue(t)
 	case "cline":
-		return inspectEditor(t, "cline", []string{"saoudrizwan.claude-dev", "cline.cline"}, "cline.openAiBaseUrl", "cline.apiProvider")
+		return extensionHits(t, []string{"saoudrizwan.claude-dev", "cline.cline"}), "", "", false, ""
 	case "roo":
-		return inspectEditor(t, "roo", []string{"rooveterinaryinc.roo-cline"}, "roo-cline.openAiBaseUrl", "roo-cline.apiProvider")
+		return extensionHits(t, []string{"rooveterinaryinc.roo-cline"}), "", "", false, ""
 	case "cursor":
 		return inspectCursor(t)
 	case "vscode-copilot":
@@ -672,10 +672,15 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 	if len(paths) == 0 {
 		return Result{Tool: id, Action: "error"}, fmt.Errorf("%s has no config path", spec.Name)
 	}
-	for _, path := range paths {
+	for i, path := range paths {
 		if err := underHome(t.Home, path); err != nil {
 			return Result{}, err
 		}
+		resolved, err := canonicalPath(path)
+		if err != nil {
+			return Result{}, err
+		}
+		paths[i] = resolved
 	}
 	changes := make([]Change, 0, len(paths))
 	anyDiff := false
@@ -813,7 +818,7 @@ func toolsForPath(states map[string]managedState, path string) []string {
 	var ids []string
 	for id, state := range states {
 		for _, candidate := range state.Paths {
-			if candidate == path {
+			if fileIdentity(candidate) == fileIdentity(path) {
 				ids = append(ids, id)
 			}
 		}
@@ -1023,8 +1028,9 @@ func editOpenCode(content []byte, openai string) ([]byte, error) {
 		providers = map[string]any{}
 	}
 	providers["hypermesh"] = map[string]any{
-		"npm":  opencodeNPM,
-		"name": continueTitle,
+		"npm":    opencodeNPM,
+		"name":   continueTitle,
+		"models": map[string]any{"conductor": map[string]any{"name": continueTitle}},
 		"options": map[string]any{
 			"baseURL": openai,
 			"apiKey":  "{env:" + keyReference + "}",
@@ -1680,35 +1686,52 @@ func underHome(home, path string) error {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing to edit %s outside the home directory", path)
 	}
-	// Resolve the nearest existing ancestor before creating any missing suffix.
-	probe := path
-	for {
-		if _, err := os.Lstat(probe); err == nil {
-			break
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			return fmt.Errorf("cannot resolve destination %s", path)
-		}
-		probe = parent
-	}
-	resolved, err := filepath.EvalSymlinks(probe)
+	resolved, err := canonicalPath(path)
 	if err != nil {
 		return err
 	}
-	suffix, err := filepath.Rel(probe, path)
-	if err != nil {
-		return err
-	}
-	resolved = filepath.Join(resolved, suffix)
 	rel, err = filepath.Rel(home, resolved)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing to edit %s outside the home directory", path)
 	}
 
 	return nil
+}
+
+func canonicalPath(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	probe := path
+	for {
+		if _, err := os.Lstat(probe); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", fmt.Errorf("cannot resolve %s", path)
+		}
+		probe = parent
+	}
+	resolved, err := filepath.EvalSymlinks(probe)
+	if err != nil {
+		return "", err
+	}
+	suffix, err := filepath.Rel(probe, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, suffix), nil
+}
+func fileIdentity(path string) string {
+	resolved, err := canonicalPath(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return resolved
 }
 
 type managedState struct {
@@ -1733,7 +1756,7 @@ func managedPath(t target, id string) string {
 }
 
 func snapPaths(t target, path string) (meta string, body string) {
-	sum := sha256.Sum256([]byte(path))
+	sum := sha256.Sum256([]byte(fileIdentity(path)))
 	name := hex.EncodeToString(sum[:8])
 	dir := filepath.Join(backupRoot(t), "files")
 	return filepath.Join(dir, name+".json"), filepath.Join(dir, name+".orig")
