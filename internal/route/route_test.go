@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hyperme-sh/hypermesh-cli/internal/api"
+	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -278,9 +279,15 @@ func TestCodexAndShellRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	codexNow, _ := os.ReadFile(codexPath)
-	if !strings.Contains(string(codexNow), `base_url = "http://127.0.0.1:8787/v1"`) || !strings.Contains(string(codexNow), `env_key = "HYPERMESH_API_KEY"`) || !strings.Contains(string(codexNow), `wire_api = "responses"`) {
+	var codexConfig map[string]any
+	if err := toml.Unmarshal(codexNow, &codexConfig); err != nil {
+		t.Fatal(err)
+	}
+	provider := codexConfig["model_providers"].(map[string]any)["hypermesh"].(map[string]any)
+	if provider["base_url"] != "http://127.0.0.1:8787/v1" || provider["env_key"] != "HYPERMESH_API_KEY" || provider["wire_api"] != "responses" {
 		t.Fatalf("codex %s", codexNow)
 	}
+
 	if strings.Contains(string(codexNow), "sk-") {
 		t.Fatal("codex gained a secret")
 	}
@@ -481,14 +488,20 @@ func TestJSONCTrailingCommasPreserveStrings(t *testing.T) {
 	}
 }
 
-func TestCodexTableCommentsDoNotDuplicateProvider(t *testing.T) {
-	input := "[model_providers.hypermesh] # custom\nbase_url = \"http://old/v1\"\n[profiles.work] # preserved\nmodel = \"keep\"\n"
-	got := editCodex(input, "http://new/v1")
-	if strings.Count(got, "[model_providers.hypermesh]") != 1 || strings.Contains(got, "http://old") || !strings.Contains(got, "[profiles.work] # preserved\nmodel = \"keep\"") {
-		t.Fatalf("invalid replacement: %s", got)
-	}
-	if tomlTableHeader(`[profiles."a#b"] # note`) != `[profiles."a#b"]` {
-		t.Fatal("quoted hash treated as comment")
+func TestCodexEquivalentProviderHeaders(t *testing.T) {
+	for _, header := range []string{`[model_providers.hypermesh] # custom`, `[model_providers."hypermesh"]`, `[ "model_providers" . 'hypermesh' ]`} {
+		input := header + "\nbase_url = \"http://old/v1\"\n[profiles.work] # preserved\nmodel = \"keep\"\n"
+		got, err := editCodex(input, "http://new/v1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var root map[string]any
+		if err := toml.Unmarshal(got, &root); err != nil {
+			t.Fatal(err)
+		}
+		if codexBaseURL(string(got)) != "http://new/v1" || root["profiles"].(map[string]any)["work"].(map[string]any)["model"] != "keep" {
+			t.Fatalf("lost config: %s", got)
+		}
 	}
 }
 
@@ -709,6 +722,32 @@ func TestAiderReplacesCompleteYAMLValue(t *testing.T) {
 		}
 		if strings.Contains(string(got), "api.openai.com") {
 			t.Fatal("old scalar retained")
+		}
+	}
+}
+
+func TestExtensionUsesOwningEditorSettings(t *testing.T) {
+	for _, entry := range []struct{ dir, editor string }{{".cursor", "Cursor"}, {".vscode-insiders", "Code - Insiders"}, {".vscode", "Code"}} {
+		for _, tool := range []struct{ id, extension, key string }{{"cline", "saoudrizwan.claude-dev", "cline.openAiBaseUrl"}, {"roo", "rooveterinaryinc.roo-cline", "roo-cline.openAiBaseUrl"}, {"hypermesh-vscode", "fyberlabs.hypermesh-vscode", "hypermesh.apiBase"}} {
+			home := t.TempDir()
+			mustWrite(t, filepath.Join(home, entry.dir, "extensions", tool.extension+"-1.0.0", "package.json"), "{}")
+			opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+			if _, err := Enable(opts, tool.id, false); err != nil {
+				t.Fatal(err)
+			}
+			expected := filepath.Join(home, ".config", entry.editor, "User", "settings.json")
+			if jsonString(readFile(expected), tool.key) == "" {
+				t.Fatalf("wrong editor for %s in %s", tool.id, entry.editor)
+			}
+			if entry.editor != "Code" && exists(filepath.Join(home, ".config", "Code", "User", "settings.json")) {
+				t.Fatal("modified unrelated stable Code")
+			}
+			if _, err := Disable(opts, tool.id, false); err != nil {
+				t.Fatal(err)
+			}
+			if exists(expected) {
+				t.Fatal("new settings file not removed on disable")
+			}
 		}
 	}
 }

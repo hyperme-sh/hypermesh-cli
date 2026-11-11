@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/hyperme-sh/hypermesh-cli/internal/api"
+	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -406,7 +407,7 @@ func inspectContinue(t target) (evidence []string, path, endpoint string, redire
 }
 
 func inspectEditor(t target, id string, prefixes []string, baseKey, providerKey string) (evidence []string, path, endpoint string, redirectable bool, note string) {
-	settings := codeSettings(t)
+	settings, hits := settingsForExtensions(t, prefixes)
 	if exists(settings) {
 		raw := readFile(settings)
 		if jsonHasPrefix(raw, strings.TrimSuffix(baseKey, ".openAiBaseUrl")) || strings.Contains(raw, `"`+baseKey+`"`) || strings.Contains(raw, `"`+providerKey+`"`) {
@@ -414,7 +415,7 @@ func inspectEditor(t target, id string, prefixes []string, baseKey, providerKey 
 			endpoint = jsonString(raw, baseKey)
 		}
 	}
-	for _, hit := range extensionHits(t, prefixes) {
+	for _, hit := range hits {
 		evidence = append(evidence, hit)
 	}
 	redirectable = len(evidence) > 0
@@ -456,7 +457,7 @@ func inspectCopilot(t target) (evidence []string, path, endpoint string, redirec
 }
 
 func inspectHypermeshVSCode(t target) (evidence []string, path, endpoint string, redirectable bool, note string) {
-	settings := codeSettings(t)
+	settings, hits := settingsForExtensions(t, []string{"fyberlabs.hypermesh-vscode"})
 	if exists(settings) {
 		raw := readFile(settings)
 		if strings.Contains(raw, "hypermesh.") {
@@ -464,7 +465,7 @@ func inspectHypermeshVSCode(t target) (evidence []string, path, endpoint string,
 			endpoint = jsonString(raw, "hypermesh.apiBase")
 		}
 	}
-	evidence = append(evidence, extensionHits(t, []string{"fyberlabs.hypermesh-vscode"})...)
+	evidence = append(evidence, hits...)
 	if bin := lookup(t, "code"); bin != "" && len(evidence) > 0 {
 		evidence = append(evidence, "PATH:"+bin)
 	}
@@ -874,7 +875,7 @@ func editPath(t target, id, path string, content []byte) ([]byte, error) {
 	case "claude-code":
 		return editClaude(content, t.origin)
 	case "codex":
-		return []byte(editCodex(string(content), t.openai)), nil
+		return editCodex(string(content), t.openai)
 	case "aider":
 		return editAider(string(content), t.openai)
 	case "opencode":
@@ -958,76 +959,22 @@ func editClaude(content []byte, origin string) ([]byte, error) {
 	return marshalPretty(root)
 }
 
-func editCodex(content, openai string) string {
-	text := strings.ReplaceAll(content, "\r\n", "\n")
-	lines := strings.Split(text, "\n")
-	var kept []string
-	skipping := false
-	inTable := false
-	set := false
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		header := tomlTableHeader(trim)
-		if header != "" {
-			inTable = true
-			skipping = header == "[model_providers.hypermesh]"
-			if skipping {
-				continue
-			}
-		}
-		if skipping {
-			continue
-		}
-		if !inTable && tomlKey(trim) == "model_provider" {
-			kept = append(kept, `model_provider = "hypermesh"`)
-			set = true
-			continue
-		}
-		kept = append(kept, line)
+func editCodex(content, openai string) ([]byte, error) {
+	root := map[string]any{}
+	if err := toml.Unmarshal([]byte(content), &root); err != nil {
+		return nil, err
 	}
-	body := strings.TrimRight(strings.Join(kept, "\n"), "\n")
-	table := fmt.Sprintf("[model_providers.hypermesh]\nname = %q\nbase_url = %q\nenv_key = %q\nwire_api = \"responses\"\n", continueTitle, openai, keyReference)
-	if !set {
-		if body != "" {
-			body += "\n"
-		}
-		body = "model_provider = \"hypermesh\"\n\n" + body
+	providers, ok := root["model_providers"].(map[string]any)
+	if root["model_providers"] != nil && !ok {
+		return nil, fmt.Errorf("model_providers must be a TOML table")
 	}
-	if body != "" && !strings.HasSuffix(body, "\n") {
-		body += "\n"
+	if providers == nil {
+		providers = map[string]any{}
 	}
-	return body + "\n" + table
-}
-
-func tomlTableHeader(line string) string {
-	var quote byte
-	escaped := false
-	for i := 0; i < len(line); i++ {
-		ch := line[i]
-		if quote != 0 {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if quote == '"' && ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == quote {
-				quote = 0
-			}
-		} else if ch == '"' || ch == '\'' {
-			quote = ch
-		} else if ch == '#' {
-			line = line[:i]
-			break
-		}
-	}
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-		return line
-	}
-	return ""
+	providers["hypermesh"] = map[string]any{"name": continueTitle, "base_url": openai, "env_key": keyReference, "wire_api": "responses"}
+	root["model_providers"] = providers
+	root["model_provider"] = "hypermesh"
+	return toml.Marshal(root)
 }
 
 func editAider(content, openai string) ([]byte, error) {
@@ -1370,43 +1317,18 @@ func lastAssignment(content string, keys []string) (string, bool) {
 }
 
 func codexBaseURL(content string) string {
-	provider := "openai"
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "[") {
-			break
-		}
-		if tomlKey(trim) == "model_provider" {
-			provider = unquote(tomlValue(trim))
-		}
-	}
-	section := "[model_providers." + provider + "]"
-	active := false
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "[") && strings.HasSuffix(trim, "]") {
-			active = trim == section
-			continue
-		}
-		if active && tomlKey(trim) == "base_url" {
-			return unquote(tomlValue(trim))
-		}
-	}
-	return ""
-}
-
-func tomlKey(line string) string {
-	key, _, ok := strings.Cut(line, "=")
-	if !ok {
+	var root map[string]any
+	if err := toml.Unmarshal([]byte(content), &root); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(key)
-}
-
-func tomlValue(line string) string {
-	_, value, _ := strings.Cut(line, "=")
-	return strings.TrimSpace(value)
+	provider, _ := root["model_provider"].(string)
+	if provider == "" {
+		provider = "openai"
+	}
+	providers, _ := root["model_providers"].(map[string]any)
+	selected, _ := providers[provider].(map[string]any)
+	endpoint, _ := selected["base_url"].(string)
+	return endpoint
 }
 
 func yamlScalar(content, key string) string {
@@ -1621,6 +1543,26 @@ func codeSettings(t target) string {
 	default:
 		return filepath.Join(t.Home, ".config", "Code", "User", "settings.json")
 	}
+}
+
+// Keep the discovered editor and its settings path together. Stable Code wins
+// only when the extension is installed there; otherwise use Insiders or Cursor.
+func settingsForExtensions(t target, prefixes []string) (string, []string) {
+	hits := extensionHits(t, prefixes)
+	for _, editor := range []struct{ dir, name string }{{".vscode", "Code"}, {".vscode-insiders", "Code - Insiders"}, {".cursor", "Cursor"}} {
+		root := filepath.Join(t.Home, editor.dir, "extensions") + string(filepath.Separator)
+		var selected []string
+		for _, hit := range hits {
+			if strings.HasPrefix(hit, root) {
+				selected = append(selected, hit)
+			}
+		}
+		if len(selected) > 0 {
+			base := filepath.Dir(filepath.Dir(filepath.Dir(codeSettings(t))))
+			return filepath.Join(base, editor.name, "User", "settings.json"), selected
+		}
+	}
+	return codeSettings(t), nil
 }
 
 func zedSettings(t target) string {
