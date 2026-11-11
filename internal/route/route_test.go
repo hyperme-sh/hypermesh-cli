@@ -597,3 +597,79 @@ func TestDiffRedactsLiteralFallbackSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestMultilineShellAssignmentLeavesConfigUnchanged(t *testing.T) {
+	for _, value := range []string{"\"https://example/\\\npath\"", "'https://example/\npath'", "https://example/\\\npath"} {
+		home := t.TempDir()
+		path := filepath.Join(home, ".profile")
+		original := "export OPENAI_BASE_URL=" + value + "\n"
+		mustWrite(t, path, original)
+		opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+		if _, err := Enable(opts, "openai-env", false); err == nil {
+			t.Fatal("accepted multiline assignment")
+		}
+		if readFile(path) != original {
+			t.Fatal("config modified on error")
+		}
+	}
+}
+func TestMissingConfigUnderExternalSymlinkDenied(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := underHome(home, filepath.Join(home, ".claude", "missing", "settings.json")); err == nil {
+		t.Fatal("outside ancestor accepted")
+	}
+	inside := filepath.Join(home, "dotfiles")
+	if err := os.Mkdir(inside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(inside, filepath.Join(home, ".aider")); err != nil {
+		t.Fatal(err)
+	}
+	if err := underHome(home, filepath.Join(home, ".aider", "missing.yml")); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestVSCodeOriginDetectedAsRedirected(t *testing.T) {
+	home := t.TempDir()
+	mustWrite(t, filepath.Join(home, ".config", "Code", "User", "settings.json"), `{"hypermesh.apiBase":"http://localhost:8787"}`)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	rows, err := Detect(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.ID == "hypermesh-vscode" {
+			if !row.Redirected {
+				t.Fatal("origin not detected")
+			}
+			return
+		}
+	}
+	t.Fatal("extension missing")
+}
+func TestChangedShellTargetRestoresEveryPath(t *testing.T) {
+	home := t.TempDir()
+	bash := filepath.Join(home, ".bashrc")
+	profile := filepath.Join(home, ".profile")
+	original := "export OPENAI_BASE_URL=http://original\n"
+	next := "export OPENAI_BASE_URL=http://second\n"
+	mustWrite(t, bash, original)
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "http://localhost:8787", GOOS: "linux"}
+	if _, err := Enable(opts, "openai-env", false); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, profile, next)
+	if _, err := Enable(opts, "openai-env", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Disable(opts, "openai-env", false); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(bash) != original || readFile(profile) != next {
+		t.Fatal("earlier config not restored")
+	}
+}

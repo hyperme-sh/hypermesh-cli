@@ -216,6 +216,9 @@ func detect(t target) ([]Finding, error) {
 			row.Notes += note
 		}
 		row.Redirected = endpoint != "" && endpointMatches(spec.Protocol, endpoint, t)
+		if spec.ID == "hypermesh-vscode" {
+			row.Redirected = endpoint == t.origin
+		}
 		row.Managed = managed[spec.ID]
 		out = append(out, row)
 	}
@@ -830,6 +833,43 @@ func editPaths(t target, id string, row Finding) []string {
 }
 
 func editPath(t target, id, path string, content []byte) ([]byte, error) {
+	if envTool(id) {
+		for _, line := range strings.Split(string(content), "\n") {
+			body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
+			key, value, ok := strings.Cut(body, "=")
+			if !ok || !(strings.HasPrefix(key, "OPENAI_") || strings.HasPrefix(key, "ANTHROPIC_")) {
+				continue
+			}
+			var quote rune
+			escaped := false
+			for _, ch := range value {
+				if escaped {
+					escaped = false
+					continue
+				}
+				if ch == '\\' && quote != '\'' {
+					escaped = true
+					continue
+				}
+				if quote != 0 {
+					if ch == quote {
+						quote = 0
+					}
+					continue
+				}
+				if ch == '#' {
+					break
+				}
+				if ch == '\'' || ch == '"' || ch == '`' {
+					quote = ch
+				}
+			}
+			if quote != 0 || escaped {
+				return nil, fmt.Errorf("multiline shell assignment for %s is not supported; config unchanged", key)
+			}
+		}
+	}
+
 	switch id {
 	case "claude-code":
 		return editClaude(content, t.origin)
@@ -1704,12 +1744,34 @@ func underHome(home, path string) error {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing to edit %s outside the home directory", path)
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		rel, err = filepath.Rel(home, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("refusing to edit %s outside the home directory", path)
+	// Resolve the nearest existing ancestor before creating any missing suffix.
+	probe := path
+	for {
+		if _, err := os.Lstat(probe); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return err
 		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return fmt.Errorf("cannot resolve destination %s", path)
+		}
+		probe = parent
 	}
+	resolved, err := filepath.EvalSymlinks(probe)
+	if err != nil {
+		return err
+	}
+	suffix, err := filepath.Rel(probe, path)
+	if err != nil {
+		return err
+	}
+	resolved = filepath.Join(resolved, suffix)
+	rel, err = filepath.Rel(home, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to edit %s outside the home directory", path)
+	}
+
 	return nil
 }
 
@@ -1796,6 +1858,23 @@ func readManaged(t target, id string) (managedState, bool, error) {
 }
 
 func setManaged(t target, id string, paths []string) error {
+	old, ok, err := readManaged(t, id)
+	if err != nil {
+		return err
+	}
+	if ok {
+		seen := map[string]bool{}
+		for _, path := range paths {
+			seen[path] = true
+		}
+		for _, path := range old.Paths {
+			if !seen[path] {
+				paths = append(paths, path)
+				seen[path] = true
+			}
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Join(backupRoot(t), "tools"), 0o700); err != nil {
 		return err
 	}
