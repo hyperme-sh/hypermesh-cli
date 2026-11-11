@@ -911,7 +911,7 @@ func TestCredentialSelectorsRebound(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(got), "old-provider-key") || !strings.Contains(string(got), "other-provider-key") || !strings.Contains(string(got), "${{ secrets.HYPERMESH_API_KEY }}") {
+		if strings.Contains(string(got), "old-provider-key") || !strings.Contains(string(got), "other-provider-key") || !strings.Contains(string(got), "HYPERMESH_API_KEY") {
 			t.Fatalf("unsafe Continue credentials: %s", got)
 		}
 	}
@@ -959,5 +959,55 @@ func TestShellRouteURLsAreLiteral(t *testing.T) {
 				t.Fatalf("URL evaluated: %q, err=%v; want %q", got, err, endpoint)
 			}
 		}
+	}
+}
+
+func TestContinueJSONUsesRegisteredEnvironmentReference(t *testing.T) {
+	got, err := editContinueJSON([]byte(`{"env":["OTHER_KEY"],"models":[{"title":"Hypermesh Conductor","apiKey":"old-key"}]}`), "https://conductor.example/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Env    []string         `json:"env"`
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(got, &config); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(config.Env, ",") != "OTHER_KEY,HYPERMESH_API_KEY" || config.Models[0]["apiKey"] != "HYPERMESH_API_KEY" {
+		t.Fatalf("bad JSON credential reference: %s", got)
+	}
+	// Reproduce Continue's exact quoted-variable substitution.
+	resolved := strings.ReplaceAll(string(got), `"HYPERMESH_API_KEY"`, `"fixture-hypermesh-key"`)
+	if err := json.Unmarshal([]byte(resolved), &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Models[0]["apiKey"] != "fixture-hypermesh-key" {
+		t.Fatal("key did not resolve")
+	}
+	again, err := editContinueJSON(got, "https://conductor.example/v1")
+	if err != nil || string(again) != string(got) {
+		t.Fatal("JSON enable not idempotent")
+	}
+}
+
+func TestOpenCodeProviderFiltersIncludeHypermesh(t *testing.T) {
+	got, err := editOpenCode([]byte(`{"enabled_providers":["openai"],"disabled_providers":["hypermesh","other"]}`), "https://conductor.example/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Enabled  []string `json:"enabled_providers"`
+		Disabled []string `json:"disabled_providers"`
+	}
+	if err := json.Unmarshal(got, &config); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(config.Enabled, ",") != "openai,hypermesh" || strings.Join(config.Disabled, ",") != "other" {
+		t.Fatalf("bad provider filters: %s", got)
+	}
+	again, err := editOpenCode(got, "https://conductor.example/v1")
+	if err != nil || string(again) != string(got) {
+		t.Fatal("provider filters not idempotent")
 	}
 }

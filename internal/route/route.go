@@ -1049,6 +1049,30 @@ func editOpenCode(content []byte, openai string) ([]byte, error) {
 			return nil, err
 		}
 	}
+	for _, field := range []string{"enabled_providers", "disabled_providers"} {
+		raw, exists := root[field]
+		if !exists {
+			continue
+		}
+		values, ok := raw.([]any)
+		if !ok {
+			return nil, fmt.Errorf("%s must be an array of provider IDs", field)
+		}
+		filtered := make([]any, 0, len(values)+1)
+		for _, value := range values {
+			provider, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s must contain provider IDs", field)
+			}
+			if provider != "hypermesh" {
+				filtered = append(filtered, provider)
+			}
+		}
+		if field == "enabled_providers" {
+			filtered = append(filtered, "hypermesh")
+		}
+		root[field] = filtered
+	}
 	providers, _ := root["provider"].(map[string]any)
 	if providers == nil {
 		providers = map[string]any{}
@@ -1074,6 +1098,28 @@ func editContinueJSON(content []byte, openai string) ([]byte, error) {
 			return nil, err
 		}
 	}
+	var env []any
+	if raw, exists := root["env"]; exists {
+		var ok bool
+		env, ok = raw.([]any)
+		if !ok {
+			return nil, fmt.Errorf("Continue env must be an array of variable names")
+		}
+	}
+	foundKey := false
+	for _, value := range env {
+		name, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("Continue env must contain variable names")
+		}
+		if name == keyReference {
+			foundKey = true
+		}
+	}
+	if !foundKey {
+		env = append(env, keyReference)
+	}
+	root["env"] = env
 	var models []any
 	if existing, ok := root["models"].([]any); ok {
 		models = existing
@@ -1083,7 +1129,7 @@ func editContinueJSON(content []byte, openai string) ([]byte, error) {
 		"provider": "openai",
 		"model":    "conductor",
 		"apiBase":  openai,
-		"apiKey":   "${{ secrets." + keyReference + " }}",
+		"apiKey":   keyReference,
 	}
 	replaced := false
 	for i, item := range models {
