@@ -693,3 +693,22 @@ func TestContinueDetectsFlowAndBlockEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestAiderReplacesCompleteYAMLValue(t *testing.T) {
+	for _, input := range []string{
+		"openai-api-base: >-\n  https://api.openai.com/v1\nmodel: keep\n",
+		"openai-api-base: |\n  https://api.openai.com/v1\nmodel: keep\n",
+		"{openai-api-base: https://api.openai.com/v1, model: keep}",
+	} {
+		got, err := editAider(input, "http://127.0.0.1:8787/v1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if yamlScalar(string(got), "openai-api-base") != "http://127.0.0.1:8787/v1" || yamlScalar(string(got), "model") != "keep" {
+			t.Fatalf("invalid replacement: %s", got)
+		}
+		if strings.Contains(string(got), "api.openai.com") {
+			t.Fatal("old scalar retained")
+		}
+	}
+}

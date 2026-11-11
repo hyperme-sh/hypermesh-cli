@@ -876,7 +876,7 @@ func editPath(t target, id, path string, content []byte) ([]byte, error) {
 	case "codex":
 		return []byte(editCodex(string(content), t.openai)), nil
 	case "aider":
-		return []byte(editAider(string(content), t.openai)), nil
+		return editAider(string(content), t.openai)
 	case "opencode":
 		return editOpenCode(content, t.openai)
 	case "continue":
@@ -1030,35 +1030,34 @@ func tomlTableHeader(line string) string {
 	return ""
 }
 
-func editAider(content, openai string) string {
-	text := strings.ReplaceAll(content, "\r\n", "\n")
-	if strings.TrimSpace(text) == "" {
-		return "openai-api-base: " + openai + "\n"
+func editAider(content, openai string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return nil, err
 	}
-	lines := strings.Split(text, "\n")
+	if len(doc.Content) == 0 {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("Aider config must be a YAML mapping")
+	}
 	found := false
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		if trim == "" || strings.HasPrefix(trim, "#") {
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value != "openai-api-base" {
 			continue
 		}
-		key, _, ok := strings.Cut(trim, ":")
-		if ok && strings.TrimSpace(key) == "openai-api-base" {
-			lines[i] = "openai-api-base: " + openai
-			found = true
+		if found {
+			return nil, fmt.Errorf("duplicate openai-api-base key")
 		}
+		found = true
+		old := root.Content[i+1]
+		root.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: openai, HeadComment: old.HeadComment, LineComment: old.LineComment, FootComment: old.FootComment}
 	}
-	out := strings.Join(lines, "\n")
 	if !found {
-		if !strings.HasSuffix(out, "\n") {
-			out += "\n"
-		}
-		out += "openai-api-base: " + openai + "\n"
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "openai-api-base"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: openai})
 	}
-	if !strings.HasSuffix(out, "\n") {
-		out += "\n"
-	}
-	return out
+	return yaml.Marshal(&doc)
 }
 
 func editOpenCode(content []byte, openai string) ([]byte, error) {
@@ -1411,17 +1410,12 @@ func tomlValue(line string) string {
 }
 
 func yamlScalar(content, key string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trim := strings.TrimSpace(line)
-		if trim == "" || strings.HasPrefix(trim, "#") {
-			continue
-		}
-		name, value, ok := strings.Cut(trim, ":")
-		if ok && strings.TrimSpace(name) == key {
-			return unquote(strings.TrimSpace(value))
-		}
+	var root map[string]any
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return ""
 	}
-	return ""
+	value, _ := root[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func continueEndpoint(content string, asJSON bool) string {
