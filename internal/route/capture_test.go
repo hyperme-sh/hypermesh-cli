@@ -88,3 +88,33 @@ func TestCapturedOriginFailuresWriteNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestCapturedSharedShellPreservesOtherTool(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".profile")
+	original := "export OPENAI_BASE_URL='https://openai.example/v1'\nexport ANTHROPIC_BASE_URL='https://anthropic.example'\nexport OPENAI_API_KEY=\"${OPENAI_SECRET}\"\nexport ANTHROPIC_API_KEY=\"${ANTHROPIC_SECRET}\"\n"
+	mustWrite(t, path, original)
+	opts := Options{Home: home, ConfigDir: filepath.Join(home, ".config", "hypermesh"), ConductorBase: "https://localhost:8787", PreserveProvider: true}
+	for _, id := range []string{"openai-env", "anthropic-env"} {
+		if _, err := Enable(opts, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := readFile(path)
+	if !strings.Contains(current, "/capture/openai-env/v1") || !strings.Contains(current, "/capture/anthropic-env") {
+		t.Fatal(current)
+	}
+	if _, err := Disable(opts, "openai-env", false); err != nil {
+		t.Fatal(err)
+	}
+	current = readFile(path)
+	if strings.Contains(current, "/capture/openai-env") || !strings.Contains(current, "/capture/anthropic-env") {
+		t.Fatal(current)
+	}
+	if _, err := Disable(opts, "anthropic-env", false); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(path) != original {
+		t.Fatal("original shell not restored")
+	}
+}

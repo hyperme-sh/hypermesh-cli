@@ -45,6 +45,28 @@ func enableCaptured(t target, id string, row Finding, dry bool) (Result, error) 
 			return Result{}, fmt.Errorf("conflicting captured provider profiles")
 		}
 		profile = p
+		states, stateErr := managedStates(t)
+		if stateErr != nil {
+			return Result{}, stateErr
+		}
+		remaining := toolsForPath(states, resolved)
+		sort.Strings(remaining)
+		for _, other := range remaining {
+			if other == id {
+				continue
+			}
+			options := t.Options
+			options.PreserveProvider = states[other].PreserveProvider
+			options.ConductorBase = states[other].ConductorBase
+			otherTarget, prepareErr := prepare(options)
+			if prepareErr != nil {
+				return Result{}, prepareErr
+			}
+			next, err = editPath(otherTarget, other, path, next)
+			if err != nil {
+				return Result{}, err
+			}
+		}
 		if introducedSecret(t.Environ, source, next) {
 			return Result{}, fmt.Errorf("refusing to copy a credential")
 		}
