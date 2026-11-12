@@ -228,7 +228,7 @@ hypermesh route disable continue
 hypermesh route disable --all
 ```
 
-`detect` is read-only. It reports whether each tool has a custom OpenAI-compatible or Anthropic-compatible base URL. `enable` writes that config, keeps a backup, and does not paste the renter key. `disable` restores the backup. Tools without a documented base URL (Gemini CLI, Cursor, Copilot BYOK, JetBrains AI, LM Studio, Ollama) are listed and not modified.
+`detect` is read-only. It reports whether each tool has a custom OpenAI-compatible or Anthropic-compatible base URL. `enable` preserves the original provider endpoint and credential selector, writes a direct Conductor profile, and keeps a backup. `disable` restores the backup. Tools without a documented base URL (Gemini CLI, Cursor, Copilot BYOK, JetBrains AI, LM Studio, Ollama) are listed and not modified.
 
 [Hypermesh for VS Code](https://github.com/hyperme-sh/hypermesh-vscode) contributes **Hypermesh: smoke** (`hypermesh.smoke`). Its window setting `hypermesh.apiBase` defaults to the gateway origin and the command posts `{apiBase}/v1/chat/completions`. `hypermesh route enable hypermesh-vscode` sets `hypermesh.apiBase` to the Conductor origin. The renter key stays in VS Code SecretStorage (`hypermesh.key`). The extension does not send a job class, so Conductor needs `default_class` for that smoke command. The extension is not a substitute for `hypermesh checkout`.
 
@@ -242,4 +242,24 @@ Third-party tool redirects require an HTTPS Conductor origin because those tools
 
 Cline and Roo are detected but are not automatically redirected: their provider configuration lives in extension global state, not VS Code user settings. Use their own provider UI. The CLI does not edit extension databases or claim that unused settings keys change the provider.
 
-Automatic redirects select Hypermesh credential references for Claude Code and Continue, replacing any previous provider credential selector. Aider and Zed are detected but automatic enable is refused because this editor cannot safely rebind their environment/.env or keychain credentials. Configure a distinct Hypermesh credential in those tools manually. Existing CLI backups can still be restored with `route disable`.
+Third-party redirects preserve the existing model and credential selector. They write one
+secret-free profile per tool under `$HYPERMESH_CONFIG_DIR/conductor/captures` and
+point the client at `/capture/TOOL/v1` (Anthropic uses `/capture/TOOL`). Set
+Conductor `capture_dir` to that directory and restart it after enabling or disabling
+a tool. Unknown capture paths fail before provider dispatch. Re-enable uses the
+saved original configuration, including when migrating an older Hypermesh redirect.
+
+Conductor network authentication is separate from provider authentication. Clients
+must send `X-Conductor-Token` from `CONDUCTOR_PROXY_TOKEN`. Codex profiles add an
+`env_http_headers` reference; Claude can use `ANTHROPIC_CUSTOM_HEADERS`, and SDK
+clients must set their default headers. Configure other clients' custom headers
+using their own documented settings. Tokens are never copied into a profile.
+See [Codex configuration](https://developers.openai.com/codex/config-reference/)
+and [Claude environment variables](https://code.claude.com/docs/en/env-vars).
+
+Codex subscription sessions and Claude OAuth sessions cannot be captured as API
+keys. Custom Codex providers require an environment key reference; OpenCode requires
+an explicit OpenAI-compatible provider. Continue models must share one explicit
+provider root. Ambiguous configurations fail before edits. Aider and Zed remain
+unsupported automatic edits; their existing backups can still be restored.
+Hypermesh for VS Code retains its separate Hypermesh credential path.
