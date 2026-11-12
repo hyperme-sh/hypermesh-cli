@@ -1,6 +1,7 @@
 package route
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -72,7 +73,7 @@ func enableCaptured(t target, id string, row Finding, dry bool) (Result, error) 
 		}
 		planned[resolved], logical[resolved] = next, path
 	}
-	if err := underHome(t.Home, profilePath); err != nil {
+	if err := underHome(t.ConfigDir, profilePath); err != nil {
 		return Result{}, err
 	}
 	resolved, err := canonicalPath(profilePath)
@@ -151,6 +152,9 @@ func capturedEdit(t target, id, path string, content []byte) ([]byte, []byte, er
 			providers = map[string]any{}
 		}
 		name, _ := root["model_provider"].(string)
+		if name == "" {
+			name = "openai"
+		}
 		source, _ := providers[name].(map[string]any)
 		selected := map[string]any{}
 		for k, v := range source {
@@ -228,6 +232,27 @@ func capturedEdit(t target, id, path string, content []byte) ([]byte, []byte, er
 			return nil, nil, validationErr
 		}
 		endpoint = envValue(t.Environ, key)
+		managedURL := origin
+		if id == "openai-env" {
+			managedURL += "/v1"
+		}
+		if endpoint == managedURL {
+			state, managed, stateErr := readManaged(t, id)
+			if stateErr != nil || !managed || !state.PreserveProvider {
+				return nil, nil, fmt.Errorf("original captured provider is unavailable")
+			}
+			raw, readErr := os.ReadFile(filepath.Join(captureRoot(t), id+".json"))
+			var saved struct {
+				BaseURL string `json:"base_url"`
+			}
+			if readErr != nil || json.Unmarshal(raw, &saved) != nil || saved.BaseURL == "" {
+				return nil, nil, fmt.Errorf("original captured provider profile is unavailable")
+			}
+			endpoint = saved.BaseURL
+			if id == "anthropic-env" {
+				endpoint = strings.TrimSuffix(endpoint, "/v1")
+			}
+		}
 		for _, line := range strings.Split(string(content), "\n") {
 			field, value, ok := strings.Cut(strings.TrimPrefix(strings.TrimSpace(line), "export "), "=")
 			if ok && (field == key || (id == "openai-env" && field == "OPENAI_API_BASE")) {
