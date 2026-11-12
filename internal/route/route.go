@@ -77,12 +77,13 @@ type Result struct {
 
 // Options selects the machine scan. Tests pass a fixture home.
 type Options struct {
-	Home          string
-	ConfigDir     string
-	ConductorBase string
-	Path          string
-	Environ       []string
-	GOOS          string
+	PreserveProvider bool
+	Home             string
+	ConfigDir        string
+	ConductorBase    string
+	Path             string
+	Environ          []string
+	GOOS             string
 }
 
 type target struct {
@@ -221,6 +222,9 @@ func detect(t target) ([]Finding, error) {
 			row.Redirected = endpoint == t.origin
 		}
 		row.Managed = managed[spec.ID]
+		if strings.HasPrefix(endpoint, t.origin+"/capture/"+spec.ID+"/") || endpoint == t.origin+"/capture/"+spec.ID {
+			row.Redirected = true
+		}
 		out = append(out, row)
 	}
 	return out, nil
@@ -668,6 +672,9 @@ func applyPrepared(t target, id string, dryRun, enable bool) (Result, error) {
 	if !row.Detected && !envTool(id) {
 		return Result{Tool: id, Action: "absent"}, fmt.Errorf("%s was not detected", spec.Name)
 	}
+	if t.PreserveProvider && id != "hypermesh-vscode" {
+		return enableCaptured(t, id, row, dryRun)
+	}
 	paths := editPaths(t, id, row)
 	if len(paths) == 0 {
 		return Result{Tool: id, Action: "error"}, fmt.Errorf("%s has no config path", spec.Name)
@@ -763,6 +770,7 @@ func disableTool(t target, spec Tool, dryRun bool) (Result, error) {
 			for _, other := range ordered {
 				opts := t.Options
 				opts.ConductorBase = others[other].ConductorBase
+				opts.PreserveProvider = others[other].PreserveProvider
 				if opts.ConductorBase == "" {
 					// Older state files did not record a target. Recover it from
 					// the remaining tool, never from the disable invocation.
@@ -849,6 +857,10 @@ func editPaths(t target, id string, row Finding) []string {
 }
 
 func editPath(t target, id, path string, content []byte) ([]byte, error) {
+	if t.PreserveProvider && id != "hypermesh-vscode" {
+		next, _, err := capturedEdit(t, id, path, content)
+		return next, err
+	}
 	if envTool(id) {
 		for _, line := range strings.Split(string(content), "\n") {
 			body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
@@ -1824,10 +1836,11 @@ func fileIdentity(path string) string {
 }
 
 type managedState struct {
-	LogicalPaths  map[string]string `json:"logical_paths,omitempty"`
-	ID            string            `json:"id"`
-	Paths         []string          `json:"paths"`
-	ConductorBase string            `json:"conductor_base,omitempty"`
+	PreserveProvider bool              `json:"preserve_provider,omitempty"`
+	LogicalPaths     map[string]string `json:"logical_paths,omitempty"`
+	ID               string            `json:"id"`
+	Paths            []string          `json:"paths"`
+	ConductorBase    string            `json:"conductor_base,omitempty"`
 }
 
 type fileSnap struct {
@@ -1933,7 +1946,7 @@ func setManaged(t target, id string, paths []string, logicalPaths map[string]str
 		return err
 	}
 	_ = os.Chmod(backupRoot(t), 0o700)
-	raw, err := marshalPretty(managedState{ID: id, Paths: paths, LogicalPaths: logicalPaths, ConductorBase: t.ConductorBase})
+	raw, err := marshalPretty(managedState{PreserveProvider: t.PreserveProvider, ID: id, Paths: paths, LogicalPaths: logicalPaths, ConductorBase: t.ConductorBase})
 	if err != nil {
 		return err
 	}

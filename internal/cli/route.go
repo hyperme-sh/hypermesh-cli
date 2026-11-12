@@ -19,7 +19,7 @@ func newRouteCmd(r *run) *cobra.Command {
 		Short: "Detect local AI tools and optionally point them at Conductor",
 		Long: `Read-only detect lists AI CLIs and editors and whether each one has an OpenAI-compatible or Anthropic-compatible base URL.
 
-enable and disable are opt-in. enable writes that tool's own config, keeps the renter key as a reference, and stores a backup under the Hypermesh config directory. disable restores that backup. --dry-run prints the diff and writes nothing.
+enable and disable are opt-in. enable writes that tool's own config, preserves the original provider credential reference and writes a direct provider profile, and stores a backup under the Hypermesh config directory. disable restores that backup. --dry-run prints the diff and writes nothing.
 
 Conductor serves POST /v1/messages, so Anthropic clients can be pointed at the conductor origin. Tools without a documented base URL are reported and left unchanged.`,
 	}
@@ -132,12 +132,13 @@ func routeOptions(r *run) (route.Options, error) {
 		return route.Options{}, fmt.Errorf("home directory is required")
 	}
 	return route.Options{
-		Home:          home,
-		ConfigDir:     r.cfg.Dir,
-		ConductorBase: r.cfg.ConductorBase,
-		Path:          os.Getenv("PATH"),
-		Environ:       os.Environ(),
-		GOOS:          runtime.GOOS,
+		Home:             home,
+		PreserveProvider: true,
+		ConfigDir:        r.cfg.Dir,
+		ConductorBase:    r.cfg.ConductorBase,
+		Path:             os.Getenv("PATH"),
+		Environ:          os.Environ(),
+		GOOS:             runtime.GOOS,
 	}, nil
 }
 
