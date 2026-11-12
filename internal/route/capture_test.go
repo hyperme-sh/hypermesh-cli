@@ -118,3 +118,60 @@ func TestCapturedSharedShellPreservesOtherTool(t *testing.T) {
 		t.Fatal("original shell not restored")
 	}
 }
+
+func TestCaptureReenableFromActivatedEnvironment(t *testing.T) {
+	for _, original := range []string{"export OPENAI_API_KEY=\"${KEY}\"\n", "export OPENAI_BASE_URL='https://provider.example/v1'\n"} {
+		home := t.TempDir()
+		mustWrite(t, filepath.Join(home, ".profile"), original)
+		opts := Options{Home: home, ConfigDir: filepath.Join(home, ".config", "hypermesh"), ConductorBase: "https://localhost:8787", PreserveProvider: true}
+		if _, err := Enable(opts, "openai-env", false); err != nil {
+			t.Fatal(err)
+		}
+		profile := readFile(filepath.Join(opts.ConfigDir, "conductor", "captures", "openai-env.json"))
+		opts.Environ = []string{"OPENAI_BASE_URL=https://localhost:8787/capture/openai-env/v1", "OPENAI_API_BASE=https://localhost:8787/capture/openai-env/v1"}
+		if _, err := Enable(opts, "openai-env", false); err != nil {
+			t.Fatal(err)
+		}
+		if readFile(filepath.Join(opts.ConfigDir, "conductor", "captures", "openai-env.json")) != profile {
+			t.Fatal("provider changed")
+		}
+	}
+}
+
+func TestCaptureDefaultCodexProviderAndExternalConfigDir(t *testing.T) {
+	home := t.TempDir()
+	mustWrite(t, filepath.Join(home, ".codex", "config.toml"), "[model_providers.openai]\nbase_url='https://original.example/v1'\nwire_api='responses'\n")
+	opts := Options{Home: home, ConfigDir: t.TempDir(), ConductorBase: "https://localhost:8787", PreserveProvider: true, Environ: []string{"OPENAI_API_KEY=synthetic"}}
+	if _, err := Enable(opts, "codex", false); err != nil {
+		t.Fatal(err)
+	}
+	profile := readFile(filepath.Join(opts.ConfigDir, "conductor", "captures", "codex.json"))
+	if !strings.Contains(profile, "https://original.example/v1") {
+		t.Fatal(profile)
+	}
+	if _, err := Disable(opts, "codex", false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCaptureOpenCodeStatusUsesSelectedProvider(t *testing.T) {
+	home := t.TempDir()
+	mustWrite(t, filepath.Join(home, ".config", "opencode", "opencode.json"), `{"model":"custom/original","provider":{"custom":{"npm":"@ai-sdk/openai-compatible","options":{"baseURL":"https://provider.example/v1","apiKey":"{env:KEY}"}}}}`)
+	opts := Options{Home: home, ConductorBase: "https://localhost:8787", PreserveProvider: true}
+	if _, err := Enable(opts, "opencode", false); err != nil {
+		t.Fatal(err)
+	}
+	found, err := Status(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range found {
+		if row.ID == "opencode" {
+			if !row.Redirected || row.Endpoint != "https://localhost:8787/capture/opencode/v1" {
+				t.Fatal(row)
+			}
+			return
+		}
+	}
+	t.Fatal("captured OpenCode not reported")
+}

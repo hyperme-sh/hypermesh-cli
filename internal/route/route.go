@@ -362,7 +362,12 @@ func inspectOpenCode(t target) (evidence []string, path, endpoint string, redire
 			evidence = append(evidence, cfg)
 			if path == "" {
 				path = cfg
-				endpoint = jsonString(readFile(cfg), "provider", "hypermesh", "options", "baseURL")
+				model := jsonString(readFile(cfg), "model")
+				selected, _, ok := strings.Cut(model, "/")
+				if !ok {
+					selected = "hypermesh"
+				}
+				endpoint = jsonString(readFile(cfg), "provider", selected, "options", "baseURL")
 			}
 		}
 	}
